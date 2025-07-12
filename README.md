@@ -5,7 +5,16 @@
 ![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20%7C%20LSTM-lightgrey)
 ![Multi-Modal](https://img.shields.io/badge/Feature-Multi--Modal%20Analysis-purple)
 
-FloodSentinel is a state-of-the-art flood risk assessment system built with Streamlit. It leverages machine learning and deep learning to analyze numerical data and satellite imagery, providing a comprehensive platform for flood prediction, model evaluation, and risk visualization. The system integrates directly with KaggleHub to fetch datasets automatically.
+## 🧩 Problem Statement
+Floods remain among the most destructive natural hazards globally, causing widespread loss of life, economic disruption, and environmental damage. Effective flood risk mapping and early warning are essential for disaster preparedness and mitigation. However, current flood prediction systems face critical limitations that undermine their real-world applicability, especially in data-scarce and ungauged regions where vulnerability is highest. Existing approaches either rely on computationally intensive physics-based hydrological models that require extensive ground calibration and cannot deliver real-time forecasts, or on purely data-driven machine learning models that lack physical interpretability and struggle to generalize across diverse hydrological contexts.
+
+Moreover, many existing solutions fail to fully exploit multi-modal, multi-temporal data sources. Single-date optical imagery, univariate rainfall records, or sparse historical flood events are often used in isolation, limiting models’ ability to capture the dynamic progression of flooding. There is limited integration of satellite-based remote sensing (e.g., SAR for cloud-penetrating observations, DEM for terrain modeling) with meteorological and hydrological data. Even studies that combine data types frequently treat spatial and temporal features separately, failing to model complex spatio-temporal dependencies essential for accurate forecasting.
+
+Feature engineering and model design also suffer from significant gaps. Many approaches rely on shallow ML algorithms or monolithic deep learning models without adapting to the unique characteristics of different data sources (e.g., low-frequency vs. high-frequency flood signals). Few models embed domain knowledge such as hydrological constraints directly into their architectures, limiting physical consistency and interpretability. Furthermore, explainability is often treated as a superficial post-hoc analysis rather than an integrated feature that can generate actionable insights for disaster planners and infrastructure managers.
+
+## 🧭 Proposed Approach
+
+This research aims to address these critical gaps by developing a hybrid flood risk mapping system that strategically combines machine learning for historical tabular data with deep neural networks designed to process multi-temporal satellite imagery. The proposed solution will embed hydrological knowledge to enhance generalizability and interpretability, leverage multi-sensor data fusion for richer environmental context, and deliver an operational, user-friendly interface via a Streamlit web application. By doing so, it seeks to provide accessible, real-time, and accurate flood risk assessments that support effective decision-making even in data-limited and high-risk regions.
 
 ## ✨ Key Features
 
