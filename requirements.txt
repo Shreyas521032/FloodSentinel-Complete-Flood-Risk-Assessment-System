@@ -1,20 +1,14 @@
-# Core Streamlit and Web Framework
 streamlit
-
-# Data Processing and Analysis
+xgboost
 pandas
 numpy
-
-# Machine Learning Libraries
+lightgbm
 scikit-learn
 tensorflow
 joblib
-
-# Data Visualization
+Pillow
 matplotlib
 seaborn
 plotly
-
-# Kaggle Data Integration
+opencv-python
 kagglehub
-
