@@ -13,3 +13,5 @@ plotly
 opencv-python-headless
 kagglehub
 scipy
+catboost
+shap
