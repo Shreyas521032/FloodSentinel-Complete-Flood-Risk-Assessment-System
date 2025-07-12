@@ -12,6 +12,7 @@ seaborn
 plotly
 opencv-python-headless
 kagglehub
+skimage 
 scipy
 catboost
 shap
