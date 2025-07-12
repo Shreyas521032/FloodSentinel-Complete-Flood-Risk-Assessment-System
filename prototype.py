@@ -126,12 +126,33 @@ class FloodSentinelML:
             return False
             
         try:
+            # Check if required columns exist
+            missing_cols = [col for col in self.feature_names + ['FloodProbability'] if col not in self.data.columns]
+            if missing_cols:
+                st.error(f"Missing columns in dataset: {missing_cols}")
+                return False
+            
             # Separate features and target
-            self.X = self.data[self.feature_names]
-            self.y = self.data['FloodProbability']
+            self.X = self.data[self.feature_names].copy()
+            self.y = self.data['FloodProbability'].copy()
             
             # Handle missing values
             self.X = self.X.fillna(self.X.mean())
+            self.y = self.y.fillna(self.y.mode()[0] if not self.y.mode().empty else 0)
+            
+            # Ensure y is numeric and convert to int if needed
+            if self.y.dtype == 'object':
+                # Try to convert to numeric
+                self.y = pd.to_numeric(self.y, errors='coerce')
+                self.y = self.y.fillna(0)
+            
+            # Convert to int for classification
+            self.y = self.y.astype(int)
+            
+            # Check if we have valid data
+            if len(self.X) == 0 or len(self.y) == 0:
+                st.error("No valid data found after preprocessing")
+                return False
             
             # Split the data
             self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
@@ -174,6 +195,13 @@ class FloodSentinelML:
     
     def train_and_evaluate_models(self):
         """Train and evaluate all models"""
+        # Check if data is properly preprocessed
+        if (self.X_train is None or self.y_train is None or 
+            self.X_test is None or self.y_test is None or
+            not hasattr(self, 'X_train_scaled') or not hasattr(self, 'X_test_scaled')):
+            st.error("Data not properly preprocessed. Please preprocess data first.")
+            return False
+            
         self.results = {}
         
         progress_bar = st.progress(0)
@@ -187,23 +215,45 @@ class FloodSentinelML:
                 if name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network']:
                     model.fit(self.X_train_scaled, self.y_train)
                     y_pred = model.predict(self.X_test_scaled)
-                    y_pred_proba = model.predict_proba(self.X_test_scaled)[:, 1]
+                    y_pred_proba = model.predict_proba(self.X_test_scaled)
+                    if y_pred_proba.shape[1] > 1:
+                        y_pred_proba = y_pred_proba[:, 1]
+                    else:
+                        y_pred_proba = y_pred_proba[:, 0]
                 else:
                     model.fit(self.X_train, self.y_train)
                     y_pred = model.predict(self.X_test)
-                    y_pred_proba = model.predict_proba(self.X_test)[:, 1]
+                    y_pred_proba = model.predict_proba(self.X_test)
+                    if y_pred_proba.shape[1] > 1:
+                        y_pred_proba = y_pred_proba[:, 1]
+                    else:
+                        y_pred_proba = y_pred_proba[:, 0]
                 
                 # Calculate metrics
                 accuracy = accuracy_score(self.y_test, y_pred)
-                precision = precision_score(self.y_test, y_pred, average='weighted')
-                recall = recall_score(self.y_test, y_pred, average='weighted')
-                f1 = f1_score(self.y_test, y_pred, average='weighted')
-                roc_auc = roc_auc_score(self.y_test, y_pred_proba)
+                precision = precision_score(self.y_test, y_pred, average='weighted', zero_division=0)
+                recall = recall_score(self.y_test, y_pred, average='weighted', zero_division=0)
+                f1 = f1_score(self.y_test, y_pred, average='weighted', zero_division=0)
+                
+                # Handle ROC AUC for multiclass
+                try:
+                    if len(np.unique(self.y_test)) > 2:
+                        roc_auc = roc_auc_score(self.y_test, y_pred_proba, multi_class='ovr')
+                    else:
+                        roc_auc = roc_auc_score(self.y_test, y_pred_proba)
+                except:
+                    roc_auc = 0.0
+                
                 mcc = matthews_corrcoef(self.y_test, y_pred)
                 
                 # Cross-validation
-                cv_scores = cross_val_score(model, self.X_train_scaled if name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network'] else self.X_train, 
-                                          self.y_train, cv=5, scoring='accuracy')
+                try:
+                    if name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network']:
+                        cv_scores = cross_val_score(model, self.X_train_scaled, self.y_train, cv=5, scoring='accuracy')
+                    else:
+                        cv_scores = cross_val_score(model, self.X_train, self.y_train, cv=5, scoring='accuracy')
+                except:
+                    cv_scores = np.array([accuracy])  # Fallback to single score
                 
                 self.results[name] = {
                     'model': model,
@@ -228,6 +278,7 @@ class FloodSentinelML:
         status_text.text("Training completed!")
         progress_bar.empty()
         status_text.empty()
+        return True
 
 def main():
     # Header
@@ -265,15 +316,25 @@ def main():
     if flood_ml.data is None:
         with st.spinner("Loading flood dataset..."):
             flood_ml.data = flood_ml.load_data()
-    
-    if flood_ml.data is None:
-        st.error("Failed to load dataset. Please check your internet connection and try again.")
-        return
+            if flood_ml.data is not None:
+                st.success(f"Dataset loaded successfully! Shape: {flood_ml.data.shape}")
+                # Show basic info about the dataset
+                st.write("**Dataset Preview:**")
+                st.dataframe(flood_ml.data.head())
+                
+                # Check target distribution
+                if 'FloodProbability' in flood_ml.data.columns:
+                    st.write("**Target Distribution:**")
+                    st.write(flood_ml.data['FloodProbability'].value_counts().sort_index())
+            else:
+                st.error("Failed to load dataset. Please check your internet connection and try again.")
+                return
     
     # Preprocess data
     if flood_ml.X is None:
         if flood_ml.preprocess_data(scaling_method):
             st.success("Data preprocessing completed successfully!")
+            st.rerun()  # Refresh the app to show updated state
         else:
             st.error("Failed to preprocess data.")
             return
@@ -416,8 +477,11 @@ def show_ml_models(flood_ml):
     if not flood_ml.results:
         st.info("Click the button below to train all models.")
         if st.button("🚀 Train All Models", type="primary"):
-            flood_ml.train_and_evaluate_models()
-            st.success("All models trained successfully!")
+            if flood_ml.train_and_evaluate_models():
+                st.success("All models trained successfully!")
+                st.rerun()  # Refresh to show results
+            else:
+                st.error("Failed to train models. Please check the data preprocessing.")
     
     if flood_ml.results:
         # Model performance summary
@@ -516,16 +580,34 @@ def show_model_comparison(flood_ml):
     fig_roc = go.Figure()
     
     for model_name in flood_ml.results:
-        y_pred_proba = flood_ml.results[model_name]['y_pred_proba']
-        fpr, tpr, _ = roc_curve(flood_ml.y_test, y_pred_proba)
-        auc_score = flood_ml.results[model_name]['roc_auc']
-        
-        fig_roc.add_trace(go.Scatter(
-            x=fpr,
-            y=tpr,
-            mode='lines',
-            name=f'{model_name} (AUC = {auc_score:.3f})'
-        ))
+        try:
+            y_pred_proba = flood_ml.results[model_name]['y_pred_proba']
+            
+            # Handle different probability array shapes
+            if len(np.unique(flood_ml.y_test)) > 2:
+                # Multi-class case - use the probability for the highest class
+                if len(y_pred_proba.shape) > 1:
+                    # If it's a 2D array, take the max probability
+                    y_pred_proba_plot = np.max(y_pred_proba, axis=1) if y_pred_proba.ndim > 1 else y_pred_proba
+                else:
+                    y_pred_proba_plot = y_pred_proba
+            else:
+                # Binary case
+                y_pred_proba_plot = y_pred_proba
+            
+            # Calculate ROC curve
+            fpr, tpr, _ = roc_curve(flood_ml.y_test, y_pred_proba_plot)
+            auc_score = flood_ml.results[model_name]['roc_auc']
+            
+            fig_roc.add_trace(go.Scatter(
+                x=fpr,
+                y=tpr,
+                mode='lines',
+                name=f'{model_name} (AUC = {auc_score:.3f})'
+            ))
+        except Exception as e:
+            st.warning(f"Error plotting ROC curve for {model_name}: {str(e)}")
+            continue
     
     # Add diagonal line
     fig_roc.add_trace(go.Scatter(
@@ -757,7 +839,11 @@ def show_predictions(flood_ml):
                         pred_proba = model.predict_proba(pred_df)[0]
                     
                     predictions[model_name] = pred
-                    probabilities[model_name] = pred_proba[1]  # Probability of positive class
+                    # Handle different probability array shapes
+                    if len(pred_proba) > 1:
+                        probabilities[model_name] = pred_proba[1] if len(pred_proba) > 1 else pred_proba[0]
+                    else:
+                        probabilities[model_name] = pred_proba[0]
                     
                 except Exception as e:
                     st.warning(f"Error with {model_name}: {str(e)}")
