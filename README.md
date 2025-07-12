@@ -1,6 +1,5 @@
 # 🌊 FloodSentinel: Complete Flood-Risk Assessment System
 [![Ask DeepWiki](https://img.shields.io/badge/Ask%20DeepWiki-8A2BE2)](https://deepwiki.com/Shreyas521032/FloodSentinel-Complete-Flood-Risk-Assessment-System)
-![Streamlit App](https://img.shields.io/badge/Streamlit-Deployed-ff4b4b?logo=streamlit&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
 ![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Scikit--learn-orange)
 ![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20%7C%20LSTM-lightgrey)
