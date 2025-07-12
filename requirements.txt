@@ -17,7 +17,7 @@ seaborn
 plotly
 
 Pillow
-opencv-python
+opencv-python-headless
 scikit-image
 
 kagglehub
