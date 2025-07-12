@@ -1,7 +1,7 @@
 # 🌊 FloodSentinel: Complete Flood-Risk Assessment System
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
 ![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Scikit--learn-orange)
-![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20%7C%20LSTM-lightgrey)
+![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20%7C-lightgrey)
 ![Multi-Modal](https://img.shields.io/badge/Feature-Multi--Modal%20Analysis-purple)
 
 ## 🧩 Problem Statement
