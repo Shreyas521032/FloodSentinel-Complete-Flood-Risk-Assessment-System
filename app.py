@@ -9,7 +9,6 @@ from plotly.subplots import make_subplots
 import warnings
 warnings.filterwarnings('ignore')
 
-# ML/DL Libraries
 from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
 from sklearn.preprocessing import StandardScaler, LabelEncoder, MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
@@ -21,25 +20,18 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, roc_curve
 import xgboost as xgb
 import lightgbm as lgb
-
-# Deep Learning
 import tensorflow as tf
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Conv1D, MaxPooling1D, Flatten, Input, concatenate
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-
-# Image Processing
 from PIL import Image
 import cv2
-
-# Data Download
 import kagglehub
 import os
 import zipfile
 import glob
 
-# Set page config
 st.set_page_config(
     page_title="FloodSentinel",
     page_icon="🌊",
@@ -47,7 +39,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -73,7 +64,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
 if 'datasets_loaded' not in st.session_state:
     st.session_state.datasets_loaded = False
 if 'models_trained' not in st.session_state:
@@ -108,10 +98,8 @@ class FloodSentinel:
     def load_numerical_data(self, path):
         """Load and preprocess numerical flood prediction data"""
         try:
-            # Find CSV files in the path
             csv_files = glob.glob(os.path.join(path, "*.csv"))
             if not csv_files:
-                # Look in subdirectories
                 for root, dirs, files in os.walk(path):
                     for file in files:
                         if file.endswith('.csv'):
@@ -131,14 +119,13 @@ class FloodSentinel:
     def load_image_data(self, path):
         """Load satellite imagery data"""
         try:
-            # Look for image files or structured data
             image_files = []
             for ext in ['*.jpg', '*.jpeg', '*.png', '*.tif', '*.tiff']:
                 image_files.extend(glob.glob(os.path.join(path, "**", ext), recursive=True))
             
             if image_files:
                 st.info(f"Found {len(image_files)} image files")
-                return image_files[:1000]  # Limit for demo
+                return image_files[:1000]  
             else:
                 st.warning("No image files found in the dataset path")
                 return None
@@ -151,17 +138,14 @@ class FloodSentinel:
         if df is None:
             return None, None, None, None
             
-        # Handle missing values
         df = df.dropna()
         
-        # Encode categorical variables
         le = LabelEncoder()
         categorical_columns = df.select_dtypes(include=['object']).columns
         for col in categorical_columns:
-            if col != 'FloodProbability' and col != 'Flood':  # Assuming target variables
+            if col != 'FloodProbability' and col != 'Flood':  
                 df[col] = le.fit_transform(df[col])
         
-        # Separate features and target
         target_cols = ['FloodProbability', 'Flood', 'flood', 'target']
         target_col = None
         for col in target_cols:
@@ -170,13 +154,11 @@ class FloodSentinel:
                 break
         
         if target_col is None:
-            # If no clear target, use the last column
             target_col = df.columns[-1]
             
         X = df.drop(columns=[target_col])
         y = df[target_col]
         
-        # Convert target to binary if needed
         if len(y.unique()) > 2:
             y = (y > y.median()).astype(int)
         
@@ -187,17 +169,14 @@ class FloodSentinel:
         if X is None or y is None:
             return {}
             
-        # Split data
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # Scale features
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
         self.scalers['numerical'] = scaler
         
-        # Define models
         models = {
             'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
             'XGBoost': xgb.XGBClassifier(random_state=42),
@@ -213,7 +192,6 @@ class FloodSentinel:
         
         results = {}
         
-        # Train and evaluate models
         for name, model in models.items():
             try:
                 if name in ['Logistic Regression', 'SVM', 'Naive Bayes', 'KNN']:
@@ -268,22 +246,17 @@ class FloodSentinel:
         if X is None or y is None:
             return None
             
-        # Split data
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
         
-        # Scale features
         scaler = MinMaxScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # Create and train model
         model = self.create_deep_learning_model(X_train_scaled.shape[1])
         
-        # Callbacks
         early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
         reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=0.001)
         
-        # Train model
         history = model.fit(
             X_train_scaled, y_train,
             validation_data=(X_test_scaled, y_test),
@@ -293,7 +266,6 @@ class FloodSentinel:
             verbose=0
         )
         
-        # Evaluate
         y_pred_proba = model.predict(X_test_scaled).flatten()
         y_pred = (y_pred_proba > 0.5).astype(int)
         
@@ -312,17 +284,13 @@ class FloodSentinel:
         }
 
 def main():
-    # Header
     st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
     st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">Advanced Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
     
-    # Initialize FloodSentinel
     flood_sentinel = FloodSentinel()
     
-    # Sidebar
     st.sidebar.title("🚀 FloodSentinel Control Panel")
     
-    # Navigation
     page = st.sidebar.selectbox(
         "Select Module",
         ["🏠 Home", "📊 Data Overview", "🤖 ML Models", "🧠 Deep Learning", "📈 Model Comparison", "🔮 Predictions", "📋 Risk Assessment"]
@@ -359,17 +327,14 @@ def main():
             - **Automated Processing** with Kaggle integration
             """)
         
-        # Dataset Loading Section
         st.markdown('<h3 class="sub-header">📥 Data Loading</h3>', unsafe_allow_html=True)
         
         if st.button("🔄 Load Datasets", type="primary"):
             path1, path2 = flood_sentinel.download_datasets()
             
             if path1 and path2:
-                # Load numerical data
                 flood_sentinel.numerical_data = flood_sentinel.load_numerical_data(path1)
                 
-                # Load image data
                 flood_sentinel.image_data = flood_sentinel.load_image_data(path2)
                 
                 if flood_sentinel.numerical_data is not None:
@@ -391,7 +356,6 @@ def main():
         if flood_sentinel.numerical_data is not None:
             df = flood_sentinel.numerical_data
             
-            # Basic statistics
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("📊 Total Records", len(df))
@@ -402,15 +366,12 @@ def main():
             with col4:
                 st.metric("💾 Memory Usage", f"{df.memory_usage().sum() / 1024:.1f} KB")
             
-            # Data preview
             st.markdown("### 📋 Data Preview")
             st.dataframe(df.head())
             
-            # Statistical summary
             st.markdown("### 📊 Statistical Summary")
             st.dataframe(df.describe())
             
-            # Data distribution
             st.markdown("### 📈 Data Distribution")
             numeric_columns = df.select_dtypes(include=[np.number]).columns
             if len(numeric_columns) > 0:
@@ -434,7 +395,6 @@ def main():
                     fig.update_layout(height=600, showlegend=False)
                     st.plotly_chart(fig, use_container_width=True)
             
-            # Correlation matrix
             st.markdown("### 🔗 Correlation Matrix")
             if len(numeric_columns) > 1:
                 corr_matrix = df[numeric_columns].corr()
@@ -451,7 +411,6 @@ def main():
         if flood_sentinel.numerical_data is not None:
             df = flood_sentinel.numerical_data
             
-            # Preprocess data
             X, y, processed_df, target_col = flood_sentinel.preprocess_numerical_data(df)
             
             if X is not None and y is not None:
@@ -463,18 +422,15 @@ def main():
                 with col2:
                     st.metric("Samples", X.shape[0])
                 
-                # Train models
                 if st.button("🚀 Train ML Models", type="primary"):
                     with st.spinner("Training models... This may take a few minutes."):
                         results = flood_sentinel.train_ml_models(X, y)
                         flood_sentinel.results['ml'] = results
                         st.session_state.models_trained = True
                 
-                # Display results
                 if 'ml' in flood_sentinel.results and flood_sentinel.results['ml']:
                     st.markdown("### 📊 Model Performance")
                     
-                    # Create results DataFrame
                     results_data = []
                     for name, result in flood_sentinel.results['ml'].items():
                         results_data.append({
@@ -486,11 +442,9 @@ def main():
                     results_df = pd.DataFrame(results_data)
                     st.dataframe(results_df, use_container_width=True)
                     
-                    # Best model
                     best_model = max(flood_sentinel.results['ml'].items(), key=lambda x: x[1]['accuracy'])
                     st.success(f"🏆 Best Model: {best_model[0]} (Accuracy: {best_model[1]['accuracy']:.4f})")
                     
-                    # Visualization
                     fig = px.bar(
                         results_df, 
                         x='Model', 
@@ -500,7 +454,6 @@ def main():
                     fig.update_layout(xaxis_tickangle=-45)
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # ROC Curves
                     st.markdown("### 📈 ROC Curves")
                     fig = go.Figure()
                     
@@ -536,13 +489,11 @@ def main():
         if flood_sentinel.numerical_data is not None:
             df = flood_sentinel.numerical_data
             
-            # Preprocess data
             X, y, processed_df, target_col = flood_sentinel.preprocess_numerical_data(df)
             
             if X is not None and y is not None:
                 st.success(f"✅ Data ready for deep learning! Target: {target_col}")
                 
-                # Model architecture
                 st.markdown("### 🏗️ Neural Network Architecture")
                 
                 col1, col2 = st.columns(2)
@@ -567,13 +518,11 @@ def main():
                     - Batch Size: 32
                     """)
                 
-                # Train model
                 if st.button("🚀 Train Deep Learning Model", type="primary"):
                     with st.spinner("Training neural network... This may take a while."):
                         dl_result = flood_sentinel.train_deep_learning_model(X, y)
                         flood_sentinel.results['dl'] = dl_result
                 
-                # Display results
                 if 'dl' in flood_sentinel.results and flood_sentinel.results['dl']:
                     result = flood_sentinel.results['dl']
                     
@@ -587,7 +536,6 @@ def main():
                     with col3:
                         st.metric("🔄 Training Status", "Completed ✅")
                     
-                    # Training history
                     if 'history' in result:
                         st.markdown("### 📈 Training History")
                         
@@ -598,7 +546,6 @@ def main():
                             subplot_titles=['Loss', 'Accuracy']
                         )
                         
-                        # Loss
                         fig.add_trace(
                             go.Scatter(y=history['loss'], name='Training Loss'),
                             row=1, col=1
@@ -608,7 +555,6 @@ def main():
                             row=1, col=1
                         )
                         
-                        # Accuracy
                         fig.add_trace(
                             go.Scatter(y=history['accuracy'], name='Training Accuracy'),
                             row=1, col=2
@@ -628,7 +574,6 @@ def main():
             st.warning("Please train models first from the ML Models and Deep Learning pages.")
             return
         
-        # Comparison table
         comparison_data = []
         
         if 'ml' in flood_sentinel.results:
@@ -656,11 +601,9 @@ def main():
             st.markdown("### 🏆 Overall Model Rankings")
             st.dataframe(df_comparison, use_container_width=True)
             
-            # Best model overall
             best_model = df_comparison.iloc[0]
             st.success(f"🥇 Overall Best Model: {best_model['Model']} ({best_model['Type']}) - Accuracy: {best_model['Accuracy']:.4f}")
             
-            # Comparison visualization
             fig = px.scatter(
                 df_comparison,
                 x='Accuracy',
@@ -686,7 +629,6 @@ def main():
             if X is not None:
                 st.markdown("### 🎯 Make Predictions")
                 
-                # Feature input
                 st.markdown("#### Enter Feature Values:")
                 
                 input_data = {}
@@ -718,7 +660,6 @@ def main():
                             try:
                                 model = result['model']
                                 
-                                # Scale if needed
                                 if name in ['Logistic Regression', 'SVM', 'Naive Bayes', 'KNN']:
                                     input_scaled = flood_sentinel.scalers['numerical'].transform(input_df)
                                     pred_proba = model.predict_proba(input_scaled)[0][1]
@@ -729,7 +670,6 @@ def main():
                             except:
                                 pass
                         
-                        # Display predictions
                         pred_df = pd.DataFrame([
                             {'Model': name, 'Flood Risk Probability': prob}
                             for name, prob in predictions.items()
@@ -737,7 +677,6 @@ def main():
                         
                         st.dataframe(pred_df, use_container_width=True)
                         
-                        # Average prediction
                         avg_risk = np.mean(list(predictions.values()))
                         
                         col1, col2, col3 = st.columns(3)
@@ -758,7 +697,6 @@ def main():
         
         st.markdown("### 🌍 Regional Flood Risk Analysis")
         
-        # Risk assessment parameters
         col1, col2 = st.columns(2)
         
         with col1:
@@ -782,10 +720,8 @@ def main():
         with col2:
             st.markdown("#### 📊 Risk Metrics")
             
-            # Simulated risk assessment based on parameters
             base_risk = 0.3
             
-            # Adjust risk based on region
             region_multiplier = {
                 "Urban Area": 1.2,
                 "Rural Area": 0.8,
@@ -794,7 +730,6 @@ def main():
                 "River Basin": 1.4
             }
             
-            # Adjust risk based on season
             season_multiplier = {
                 "Spring": 1.1,
                 "Summer": 0.9,
@@ -802,13 +737,11 @@ def main():
                 "Winter": 0.7
             }
             
-            # Adjust risk based on factors
             factor_impact = len(risk_factors) * 0.1
             
             calculated_risk = base_risk * region_multiplier[region] * season_multiplier[season] + factor_impact
             calculated_risk = min(calculated_risk, 1.0)  # Cap at 100%
             
-            # Display risk level
             if calculated_risk > 0.7:
                 st.error(f"🚨 HIGH RISK: {calculated_risk:.1%}")
                 risk_level = "HIGH"
@@ -822,7 +755,6 @@ def main():
                 risk_level = "LOW"
                 risk_color = "green"
         
-        # Risk gauge
         st.markdown("### 📊 Risk Level Gauge")
         
         fig = go.Figure(go.Indicator(
@@ -850,10 +782,8 @@ def main():
         fig.update_layout(height=400)
         st.plotly_chart(fig, use_container_width=True)
         
-        # Risk breakdown
         st.markdown("### 📈 Risk Factor Analysis")
         
-        # Create risk factor visualization
         factor_contributions = {
             "Regional Factor": region_multiplier[region] - 1,
             "Seasonal Factor": season_multiplier[season] - 1,
@@ -869,7 +799,6 @@ def main():
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # Recommendations
         st.markdown("### 💡 Risk Mitigation Recommendations")
         
         recommendations = []
@@ -899,10 +828,8 @@ def main():
         for rec in recommendations:
             st.markdown(f"- {rec}")
         
-        # Historical trends simulation
         st.markdown("### 📊 Historical Risk Trends")
         
-        # Simulate historical data
         months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
         risk_trend = [0.2, 0.25, 0.4, 0.5, 0.6, 0.8, 0.9, 0.85, 0.7, 0.4, 0.3, 0.25]
         
@@ -923,7 +850,6 @@ def main():
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # Footer
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; padding: 20px;">
