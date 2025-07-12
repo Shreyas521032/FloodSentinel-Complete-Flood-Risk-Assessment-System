@@ -11,7 +11,6 @@ from kagglehub import KaggleDatasetAdapter
 import warnings
 warnings.filterwarnings('ignore')
 
-# Machine Learning imports
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
@@ -22,7 +21,6 @@ import joblib
 import io
 import base64
 
-# Deep Learning imports
 import tensorflow as tf
 from tensorflow.keras.models import Sequential, Model
 from tensorflow.keras.layers import Dense, LSTM, Conv1D, MaxPooling1D, Flatten, Dropout, Input, concatenate
@@ -30,7 +28,6 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.utils import to_categorical
 
-# Set page config
 st.set_page_config(
     page_title="FloodSentinel - Flood Risk Assessment",
     page_icon="🌊",
@@ -38,7 +35,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
@@ -78,7 +74,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
 if 'datasets_loaded' not in st.session_state:
     st.session_state.datasets_loaded = False
 if 'models_trained' not in st.session_state:
@@ -88,18 +83,15 @@ if 'flood_df' not in st.session_state:
 if 'sen12_df' not in st.session_state:
     st.session_state.sen12_df = None
 
-# Main title
 st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
 
-# Sidebar navigation
 st.sidebar.title("Navigation")
 page = st.sidebar.selectbox(
     "Select Page",
     ["Home", "Data Loading & EDA", "Model Training", "Flood Risk Assessment", "Satellite Image Analysis", "About"]
 )
 
-# Helper functions
 @st.cache_data
 def load_flood_prediction_dataset():
     """Load the flood prediction dataset from Kaggle"""
@@ -132,28 +124,23 @@ def load_sen12flood_dataset():
 
 def create_hybrid_model(input_shape, num_classes):
     """Create a hybrid model combining CNN and LSTM for multi-temporal analysis"""
-    # Input layer
     input_layer = Input(shape=input_shape)
     
-    # CNN branch for spatial features
     cnn_branch = Conv1D(64, 3, activation='relu')(input_layer)
     cnn_branch = MaxPooling1D(2)(cnn_branch)
     cnn_branch = Conv1D(128, 3, activation='relu')(cnn_branch)
     cnn_branch = MaxPooling1D(2)(cnn_branch)
     cnn_branch = Flatten()(cnn_branch)
     
-    # LSTM branch for temporal features
     lstm_branch = LSTM(64, return_sequences=True)(input_layer)
     lstm_branch = LSTM(32)(lstm_branch)
     
-    # Combine branches
     combined = concatenate([cnn_branch, lstm_branch])
     combined = Dense(128, activation='relu')(combined)
     combined = Dropout(0.5)(combined)
     combined = Dense(64, activation='relu')(combined)
     combined = Dropout(0.3)(combined)
     
-    # Output layer
     if num_classes == 2:
         output = Dense(1, activation='sigmoid')(combined)
     else:
@@ -164,20 +151,16 @@ def create_hybrid_model(input_shape, num_classes):
 
 def preprocess_data(df, target_column):
     """Preprocess data for machine learning"""
-    # Handle missing values
     df = df.fillna(df.mean(numeric_only=True))
     
-    # Encode categorical variables
     le = LabelEncoder()
     for col in df.select_dtypes(include=['object']).columns:
         if col != target_column:
             df[col] = le.fit_transform(df[col].astype(str))
     
-    # Separate features and target
     X = df.drop(columns=[target_column])
     y = df[target_column]
     
-    # Scale features
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
@@ -210,7 +193,6 @@ def train_ml_models(X_train, X_test, y_train, y_test):
     
     return results, trained_models
 
-# Page routing
 if page == "Home":
     st.markdown('<h2 class="sub-header">🏠 Welcome to FloodSentinel</h2>', unsafe_allow_html=True)
     
@@ -249,7 +231,6 @@ if page == "Home":
 elif page == "Data Loading & EDA":
     st.markdown('<h2 class="sub-header">📊 Data Loading & Exploratory Data Analysis</h2>', unsafe_allow_html=True)
     
-    # Dataset loading section
     st.markdown("### 🔄 Dataset Loading")
     
     col1, col2 = st.columns(2)
@@ -268,7 +249,6 @@ elif page == "Data Loading & EDA":
                 st.success("✅ SEN12FLOOD Dataset loaded successfully!")
                 st.session_state.datasets_loaded = True
     
-    # Display datasets if loaded
     if st.session_state.flood_df is not None:
         st.markdown("### 📋 Flood Prediction Dataset")
         
@@ -296,14 +276,12 @@ elif page == "Data Loading & EDA":
         with tab3:
             st.markdown("#### Data Visualizations")
             
-            # Select numeric columns for visualization
             numeric_cols = st.session_state.flood_df.select_dtypes(include=[np.number]).columns
             
             if len(numeric_cols) > 0:
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Correlation heatmap
                     fig, ax = plt.subplots(figsize=(10, 8))
                     sns.heatmap(st.session_state.flood_df[numeric_cols].corr(), 
                               annot=True, cmap='coolwarm', center=0, ax=ax)
@@ -311,7 +289,6 @@ elif page == "Data Loading & EDA":
                     st.pyplot(fig)
                 
                 with col2:
-                    # Distribution plots
                     selected_col = st.selectbox("Select column for distribution", numeric_cols)
                     fig, ax = plt.subplots(figsize=(10, 6))
                     st.session_state.flood_df[selected_col].hist(bins=30, ax=ax)
@@ -348,7 +325,6 @@ elif page == "Model Training":
         st.markdown('<div class="warning-box">⚠️ <strong>Warning:</strong> Please load datasets first from the Data Loading & EDA page</div>', 
                    unsafe_allow_html=True)
     else:
-        # Model training section
         st.markdown("### 🧠 Machine Learning Models")
         
         dataset_choice = st.selectbox(
@@ -364,26 +340,20 @@ elif page == "Model Training":
             st.error("Selected dataset not available")
             st.stop()
         
-        # Target column selection
         target_col = st.selectbox("Select target column", df.columns)
         
         if st.button("Train Models", type="primary"):
             try:
-                # Preprocess data
                 X, y, scaler = preprocess_data(df, target_col)
                 
-                # Split data
                 X_train, X_test, y_train, y_test = train_test_split(
                     X, y, test_size=0.2, random_state=42, stratify=y
                 )
                 
-                # Train models
                 results, trained_models = train_ml_models(X_train, X_test, y_train, y_test)
                 
-                # Display results
                 st.markdown("### 📊 Model Performance")
                 
-                # Create performance comparison
                 performance_df = pd.DataFrame({
                     'Model': list(results.keys()),
                     'Accuracy': [results[model]['accuracy'] for model in results.keys()]
@@ -397,12 +367,10 @@ elif page == "Model Training":
                     st.plotly_chart(fig, use_container_width=True)
                 
                 with col2:
-                    # Best model metrics
                     best_model = max(results.keys(), key=lambda x: results[x]['accuracy'])
                     st.metric("Best Model", best_model)
                     st.metric("Best Accuracy", f"{results[best_model]['accuracy']:.4f}")
                 
-                # Detailed results
                 st.markdown("### 📈 Detailed Results")
                 
                 for model_name, result in results.items():
@@ -410,7 +378,6 @@ elif page == "Model Training":
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            # Confusion matrix
                             cm = confusion_matrix(y_test, result['predictions'])
                             fig, ax = plt.subplots(figsize=(8, 6))
                             sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax)
@@ -420,12 +387,10 @@ elif page == "Model Training":
                             st.pyplot(fig)
                         
                         with col2:
-                            # Classification report
                             report = classification_report(y_test, result['predictions'], output_dict=True)
                             report_df = pd.DataFrame(report).transpose()
                             st.dataframe(report_df)
                 
-                # Store trained models in session state
                 st.session_state.trained_models = trained_models
                 st.session_state.scaler = scaler
                 st.session_state.models_trained = True
@@ -435,23 +400,18 @@ elif page == "Model Training":
             except Exception as e:
                 st.error(f"Error during model training: {str(e)}")
         
-        # Deep Learning Model Section
         st.markdown("### 🧠 Deep Learning Model (Hybrid CNN-LSTM)")
         
         if st.button("Train Deep Learning Model", type="secondary"):
             try:
-                # Prepare data for deep learning
                 X, y, scaler = preprocess_data(df, target_col)
                 
-                # Reshape data for CNN-LSTM (add time dimension)
                 X_reshaped = X.reshape(X.shape[0], X.shape[1], 1)
                 
-                # Split data
                 X_train, X_test, y_train, y_test = train_test_split(
                     X_reshaped, y, test_size=0.2, random_state=42, stratify=y
                 )
                 
-                # Create and compile model
                 num_classes = len(np.unique(y))
                 model = create_hybrid_model(X_train.shape[1:], num_classes)
                 
@@ -466,7 +426,6 @@ elif page == "Model Training":
                                 loss='categorical_crossentropy',
                                 metrics=['accuracy'])
                 
-                # Train model
                 with st.spinner("Training Deep Learning Model..."):
                     early_stopping = EarlyStopping(patience=10, restore_best_weights=True)
                     
@@ -485,7 +444,6 @@ elif page == "Model Training":
                                           callbacks=[early_stopping],
                                           verbose=0)
                 
-                # Evaluate model
                 if num_classes == 2:
                     loss, accuracy = model.evaluate(X_test, y_test, verbose=0)
                 else:
@@ -493,7 +451,6 @@ elif page == "Model Training":
                 
                 st.metric("Deep Learning Model Accuracy", f"{accuracy:.4f}")
                 
-                # Plot training history
                 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
                 
                 ax1.plot(history.history['accuracy'], label='Training Accuracy')
@@ -512,7 +469,6 @@ elif page == "Model Training":
                 
                 st.pyplot(fig)
                 
-                # Store DL model
                 st.session_state.dl_model = model
                 st.session_state.dl_scaler = scaler
                 
@@ -530,11 +486,9 @@ elif page == "Flood Risk Assessment":
     else:
         st.markdown("### 🎯 Real-Time Flood Risk Prediction")
         
-        # Input form for prediction
         with st.form("prediction_form"):
             st.markdown("#### Enter Environmental Parameters")
             
-            # Create input fields based on available features
             if st.session_state.flood_df is not None:
                 df = st.session_state.flood_df
                 numeric_cols = df.select_dtypes(include=[np.number]).columns
@@ -543,7 +497,7 @@ elif page == "Flood Risk Assessment":
                 cols = st.columns(3)
                 
                 for i, col in enumerate(numeric_cols):
-                    if col not in ['target', 'flood', 'class']:  # Exclude target columns
+                    if col not in ['target', 'flood', 'class']:  
                         with cols[i % 3]:
                             input_data[col] = st.number_input(
                                 f"{col.replace('_', ' ').title()}",
@@ -555,11 +509,9 @@ elif page == "Flood Risk Assessment":
             
             if submitted:
                 try:
-                    # Prepare input data
                     input_df = pd.DataFrame([input_data])
                     input_scaled = st.session_state.scaler.transform(input_df)
                     
-                    # Make predictions with all models
                     predictions = {}
                     probabilities = {}
                     
@@ -569,13 +521,11 @@ elif page == "Flood Risk Assessment":
                         predictions[model_name] = pred
                         probabilities[model_name] = prob
                     
-                    # Display results
                     st.markdown("### 📊 Prediction Results")
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        # Risk level gauge
                         avg_prob = np.mean([prob[1] if len(prob) > 1 else prob[0] 
                                           for prob in probabilities.values()])
                         
@@ -604,7 +554,6 @@ elif page == "Flood Risk Assessment":
                         st.plotly_chart(fig, use_container_width=True)
                     
                     with col2:
-                        # Model predictions comparison
                         pred_df = pd.DataFrame({
                             'Model': list(predictions.keys()),
                             'Prediction': list(predictions.values()),
@@ -615,7 +564,6 @@ elif page == "Flood Risk Assessment":
                                    color='Prediction', title='Model Predictions')
                         st.plotly_chart(fig, use_container_width=True)
                     
-                    # Risk assessment summary
                     risk_level = "High" if avg_prob > 0.7 else "Medium" if avg_prob > 0.3 else "Low"
                     risk_color = "red" if risk_level == "High" else "orange" if risk_level == "Medium" else "green"
                     
@@ -646,11 +594,9 @@ elif page == "Satellite Image Analysis":
     - **Multispectral data** for water body detection
     """)
     
-    # Simulated satellite data analysis
     if st.session_state.sen12_df is not None:
         st.markdown("### 🔍 SEN12FLOOD Data Analysis")
         
-        # Display satellite data statistics
         col1, col2, col3 = st.columns(3)
         
         with col1:
@@ -666,13 +612,11 @@ elif page == "Satellite Image Analysis":
                 non_flood_count = len(st.session_state.sen12_df) - flood_count
                 st.metric("Non-Flood Samples", non_flood_count)
         
-        # Visualize satellite data patterns
         numeric_cols = st.session_state.sen12_df.select_dtypes(include=[np.number]).columns
         
         if len(numeric_cols) > 2:
             st.markdown("#### 📊 Satellite Data Patterns")
             
-            # Select features for visualization
             col1, col2 = st.columns(2)
             
             with col1:
@@ -682,7 +626,6 @@ elif page == "Satellite Image Analysis":
                 y_feature = st.selectbox("Select Y-axis feature", 
                                        [col for col in numeric_cols if col != x_feature], key="y_sat")
             
-            # Create scatter plot
             if 'flood' in st.session_state.sen12_df.columns:
                 fig = px.scatter(st.session_state.sen12_df, x=x_feature, y=y_feature, 
                                color='flood', title=f'{x_feature} vs {y_feature}')
@@ -692,15 +635,12 @@ elif page == "Satellite Image Analysis":
             
             st.plotly_chart(fig, use_container_width=True)
     
-    # Simulated real-time satellite processing
     st.markdown("### 🌍 Real-Time Satellite Processing Simulation")
     
     if st.button("Simulate Satellite Data Processing", type="primary"):
-        # Simulate satellite data processing
         with st.spinner("Processing satellite imagery..."):
             import time
             
-            # Simulate processing steps
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -718,22 +658,17 @@ elif page == "Satellite Image Analysis":
                 time.sleep(0.5)
                 progress_bar.progress((i + 1) / len(steps))
             
-            # Generate simulated results
             np.random.seed(42)
             
-            # Simulate satellite imagery analysis results
             col1, col2 = st.columns(2)
             
             with col1:
-                # Simulated flood extent map
                 fig, ax = plt.subplots(figsize=(10, 8))
                 
-                # Generate synthetic flood extent data
                 x = np.linspace(0, 100, 100)
                 y = np.linspace(0, 100, 100)
                 X, Y = np.meshgrid(x, y)
                 
-                # Create a simulated flood pattern
                 flood_extent = np.exp(-((X-50)**2 + (Y-50)**2) / 500) + \
                               0.3 * np.random.random((100, 100))
                 flood_extent = np.clip(flood_extent, 0, 1)
@@ -743,14 +678,12 @@ elif page == "Satellite Image Analysis":
                 ax.set_xlabel('Longitude (degrees)')
                 ax.set_ylabel('Latitude (degrees)')
                 
-                # Add colorbar
                 cbar = plt.colorbar(im, ax=ax)
                 cbar.set_label('Flood Probability')
                 
                 st.pyplot(fig)
             
             with col2:
-                # Temporal analysis
                 dates = pd.date_range('2024-01-01', periods=30, freq='D')
                 water_levels = np.random.normal(10, 3, 30) + \
                               5 * np.sin(np.arange(30) * 0.2) + \
@@ -765,7 +698,6 @@ elif page == "Satellite Image Analysis":
                     line=dict(color='blue', width=2)
                 ))
                 
-                # Add flood threshold line
                 fig.add_hline(y=15, line_dash="dash", line_color="red", 
                              annotation_text="Flood Threshold")
                 
@@ -778,7 +710,6 @@ elif page == "Satellite Image Analysis":
                 
                 st.plotly_chart(fig, use_container_width=True)
             
-            # Analysis summary
             st.markdown("""
             <div class="success-box">
                 <h4>📊 Analysis Summary</h4>
@@ -877,7 +808,6 @@ elif page == "About":
         </div>
         """, unsafe_allow_html=True)
     
-    # Technical details
     st.markdown("### 🔍 Technical Implementation Details")
     
     tab1, tab2, tab3 = st.tabs(["Architecture", "Algorithms", "Data Pipeline"])
@@ -955,7 +885,6 @@ elif page == "About":
         3. Model evaluation and selection
         """)
     
-    # Footer
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; margin-top: 2rem;">
@@ -964,11 +893,9 @@ elif page == "About":
     </div>
     """, unsafe_allow_html=True)
 
-# Sidebar information
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📊 System Status")
 
-# System status indicators
 if st.session_state.datasets_loaded:
     st.sidebar.success("✅ Datasets Loaded")
 else:
@@ -979,7 +906,6 @@ if st.session_state.models_trained:
 else:
     st.sidebar.warning("⚠️ Models Not Trained")
 
-# Resource information
 st.sidebar.markdown("### 🔧 Resources")
 st.sidebar.markdown("""
 - **Datasets**: 2 integrated sources
@@ -988,7 +914,6 @@ st.sidebar.markdown("""
 - **Processing**: Real-time capable
 """)
 
-# Quick actions
 st.sidebar.markdown("### ⚡ Quick Actions")
 if st.sidebar.button("🔄 Reset System"):
     for key in st.session_state.keys():
@@ -998,7 +923,6 @@ if st.sidebar.button("🔄 Reset System"):
 if st.sidebar.button("💾 Export Results"):
     st.sidebar.info("Export functionality would be implemented here")
 
-# Help section
 st.sidebar.markdown("### ❓ Help")
 st.sidebar.markdown("""
 **Getting Started:**
