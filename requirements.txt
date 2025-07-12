@@ -1,22 +1,22 @@
 # Core Streamlit and Web Framework
-streamlit>=1.28.0
+streamlit
 
 # Data Processing and Analysis
-pandas>=1.5.0
-numpy>=1.21.0
+pandas
+numpy
 
 # Machine Learning Libraries
-scikit-learn>=1.3.0
-tensorflow>=2.13.0
-joblib>=1.3.0
+scikit-learn
+tensorflow
+joblib
 
 # Data Visualization
-matplotlib>=3.5.0
-seaborn>=0.11.0
-plotly>=5.15.0
+matplotlib
+seaborn
+plotly
 
 # Kaggle Data Integration
-kagglehub>=0.2.0
+kagglehub
 
 # Additional Utilities
 warnings
