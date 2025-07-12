@@ -1065,7 +1065,7 @@ st.markdown("""
 <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin-top: 2rem;">
     <h3>🌊 FloodSentinel - Protecting Communities with AI</h3>
     <p>Advanced flood risk assessment using state-of-the-art machine learning and satellite imagery analysis</p>
-    <p>📧 Contact: floodsentinel@ai-disaster.org | 🌐 Website: www.floodsentinel.ai</p>
+    <p>Made with ❤️ by Shreyas, Chinmay and Kaivalya</p>
 </div>
 """, unsafe_allow_html=True)
 
