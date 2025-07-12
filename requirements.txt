@@ -10,5 +10,5 @@ Pillow
 matplotlib
 seaborn
 plotly
-opencv-python
+opencv-python-headless
 kagglehub
