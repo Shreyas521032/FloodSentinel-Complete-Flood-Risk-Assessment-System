@@ -101,7 +101,7 @@ st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-P
 st.sidebar.markdown("### 🧭 Navigation")
 page = st.sidebar.selectbox(
     "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "🤖 Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
 
 @st.cache_data
@@ -219,7 +219,7 @@ if page == "🏠 Home":
         <div class="warning-box">
             <h4>🚀 Key Features</h4>
             <ul>
-                <li>🤖 State-of-the-art ML algorithms</li>
+                <li>⚙️ State-of-the-art ML algorithms</li>
                 <li>🛰️ Multi-temporal satellite imagery analysis</li>
                 <li>📊 Real-time flood risk assessment</li>
                 <li>🎯 Hydrological knowledge integration</li>
