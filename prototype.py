@@ -36,7 +36,7 @@ warnings.filterwarnings('ignore')
 
 # Page Configuration
 st.set_page_config(
-    page_title="🌊 FloodSentinel - AI-Powered Flood Risk Assessment",
+    page_title="FloodSentinel - AI-Powered Flood Risk Assessment",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded"
