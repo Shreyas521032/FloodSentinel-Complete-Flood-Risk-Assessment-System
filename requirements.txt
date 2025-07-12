@@ -12,3 +12,4 @@ seaborn
 plotly
 opencv-python-headless
 kagglehub
+scipy
