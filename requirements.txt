@@ -26,7 +26,7 @@ tqdm
 
 requests
 urllib3
-
+statsmodels
 
 openpyxl
 xlrd
