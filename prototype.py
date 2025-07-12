@@ -298,14 +298,29 @@ elif page == "📊 Data Analysis":
     st.markdown("#### 📈 Feature Distribution Analysis")
     
     # Correlation Heatmap
-    fig_corr = px.imshow(
-        df.corr(),
-        title="🔥 Feature Correlation Heatmap",
-        color_continuous_scale="RdYlBu_r",
-        aspect="auto"
+    import plotly.graph_objects as go
+
+    corr_matrix = df.corr().round(2)
+
+    heatmap = go.Heatmap(
+    z=corr_matrix.values,
+    x=corr_matrix.columns,
+    y=corr_matrix.index,
+    colorscale='RdYlBu_r',
+    zmin=-1,
+    zmax=1,
+    text=corr_matrix.values,
+    texttemplate="%{text}",  
+    colorbar=dict(title="Correlation")
     )
-    fig_corr.update_layout(height=600)
-    st.plotly_chart(fig_corr, use_container_width=True)
+
+    layout = go.Layout(
+    title="🔥 Feature Correlation Heatmap",
+    height=600
+    )
+
+    fig = go.Figure(data=[heatmap], layout=layout)
+    st.plotly_chart(fig, use_container_width=True)
     
     # Target Distribution
     col1, col2 = st.columns(2)
