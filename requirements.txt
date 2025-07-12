@@ -7,7 +7,6 @@ numpy
 
 # Machine Learning Libraries
 scikit-learn
-tensorflow
 joblib
 
 # Data Visualization
