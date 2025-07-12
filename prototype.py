@@ -1,42 +1,37 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import kagglehub
-import os
-from pathlib import Path
-import warnings
-warnings.filterwarnings('ignore')
-
-# Machine Learning Libraries
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, RandomizedSearchCV
-from sklearn.preprocessing import StandardScaler, LabelEncoder, RobustScaler
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV, StratifiedKFold
+from sklearn.preprocessing import StandardScaler, RobustScaler, MinMaxScaler
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score, 
-                           confusion_matrix, classification_report, roc_auc_score, roc_curve)
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import precision_score, recall_score, f1_score, matthews_corrcoef
 from sklearn.feature_selection import SelectKBest, f_classif, RFE
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
-from sklearn.manifold import TSNE
 import xgboost as xgb
 import lightgbm as lgb
-from scipy.stats import randint, uniform
-import time
+from catboost import CatBoostClassifier
+import shap
+import kagglehub
+import os
+import warnings
+warnings.filterwarnings('ignore')
 
 # Set page config
 st.set_page_config(
-    page_title="FloodSentinel: ML Flood Risk Assessment",
+    page_title="FloodSentinel: AI-Powered Flood Risk Assessment",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -46,68 +41,59 @@ st.set_page_config(
 st.markdown("""
 <style>
     .main-header {
-        font-size: 3rem;
+        font-size: 2.5rem;
         font-weight: bold;
-        text-align: center;
         color: #1f77b4;
+        text-align: center;
         margin-bottom: 2rem;
     }
-    .sub-header {
-        font-size: 1.5rem;
-        font-weight: bold;
-        color: #ff7f0e;
-        margin-bottom: 1rem;
-    }
-    .metric-card {
+    .metric-container {
         background-color: #f0f2f6;
         padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #1f77b4;
-        margin-bottom: 1rem;
+        border-radius: 10px;
+        margin: 0.5rem 0;
     }
     .stTabs [data-baseweb="tab-list"] {
         gap: 2px;
     }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
-        background-color: #fafafa;
-        border-radius: 4px 4px 0 0;
-        padding: 0 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #1f77b4;
-        color: white;
+        padding-left: 20px;
+        padding-right: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'data_loaded' not in st.session_state:
-    st.session_state.data_loaded = False
-if 'models_trained' not in st.session_state:
-    st.session_state.models_trained = False
-if 'df' not in st.session_state:
-    st.session_state.df = None
-
-# Main title
-st.markdown('<div class="main-header">🌊 FloodSentinel: ML Flood Risk Assessment</div>', unsafe_allow_html=True)
-st.markdown("*Advanced Machine Learning System for Flood Risk Prediction Using Multi-Modal Data*")
-
-# Sidebar navigation
-st.sidebar.title("Navigation")
-page = st.sidebar.selectbox(
-    "Select Analysis Module",
-    ["🏠 Home", "📊 Data Explorer", "🔍 Feature Analysis", "🤖 ML Models", "📈 Model Comparison", "🎯 Predictions", "📋 Reports"]
-)
-
-# Data loading function
-@st.cache_data
-def load_flood_data():
-    """Load and cache flood prediction dataset"""
-    try:
-        with st.spinner("Downloading flood prediction dataset..."):
-            path = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
-            
+class FloodSentinelML:
+    def __init__(self):
+        self.data = None
+        self.X = None
+        self.y = None
+        self.X_train = None
+        self.X_test = None
+        self.y_train = None
+        self.y_test = None
+        self.scaler = None
+        self.models = {}
+        self.results = {}
+        self.feature_names = [
+            'MonsoonIntensity', 'TopographyDrainage', 'RiverManagement', 
+            'Deforestation', 'Urbanization', 'ClimateChange', 'DamsQuality',
+            'Siltation', 'AgriculturalPractices', 'Encroachments',
+            'IneffectiveDisasterPreparedness', 'DrainageSystems',
+            'CoastalVulnerability', 'Landslides', 'Watersheds',
+            'DeterioratingInfrastructure', 'PopulationScore', 'WetlandLoss',
+            'InadequatePlanning', 'PoliticalFactors'
+        ]
+        
+    @st.cache_data
+    def load_data(_self):
+        """Load and cache the flood dataset"""
+        try:
+            # Download dataset using kagglehub
+            with st.spinner("Downloading flood dataset..."):
+                path = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
+                
             # Find CSV files in the downloaded path
             csv_files = []
             for root, dirs, files in os.walk(path):
@@ -118,752 +104,431 @@ def load_flood_data():
             if not csv_files:
                 st.error("No CSV files found in the dataset")
                 return None
-            
+                
             # Load the first CSV file found
-            df = pd.read_csv(csv_files[0])
-            st.success(f"Dataset loaded successfully! Shape: {df.shape}")
-            return df
+            data = pd.read_csv(csv_files[0])
             
-    except Exception as e:
-        st.error(f"Error loading dataset: {str(e)}")
-        # Fallback: create sample data for demonstration
-        st.warning("Using sample data for demonstration purposes")
-        return create_sample_data()
-
-def create_sample_data():
-    """Create sample flood prediction data for demonstration"""
-    np.random.seed(42)
-    n_samples = 1000
+            # Ensure all required columns are present
+            required_cols = _self.feature_names + ['FloodProbability']
+            if not all(col in data.columns for col in required_cols):
+                st.error("Dataset doesn't contain all required columns")
+                return None
+                
+            return data
+            
+        except Exception as e:
+            st.error(f"Error loading dataset: {str(e)}")
+            return None
     
-    data = {
-        'rainfall': np.random.exponential(50, n_samples),
-        'temperature': np.random.normal(25, 10, n_samples),
-        'humidity': np.random.normal(70, 15, n_samples),
-        'wind_speed': np.random.gamma(2, 10, n_samples),
-        'pressure': np.random.normal(1013, 20, n_samples),
-        'elevation': np.random.uniform(0, 1000, n_samples),
-        'slope': np.random.uniform(0, 45, n_samples),
-        'soil_type': np.random.choice(['clay', 'sand', 'loam', 'silt'], n_samples),
-        'drainage': np.random.choice(['poor', 'moderate', 'good'], n_samples),
-        'land_use': np.random.choice(['urban', 'agricultural', 'forest', 'water'], n_samples),
-        'distance_to_river': np.random.uniform(0, 50, n_samples),
-        'previous_floods': np.random.poisson(2, n_samples),
-    }
+    def preprocess_data(self, scaling_method='standard'):
+        """Preprocess the data"""
+        if self.data is None:
+            return False
+            
+        try:
+            # Separate features and target
+            self.X = self.data[self.feature_names]
+            self.y = self.data['FloodProbability']
+            
+            # Handle missing values
+            self.X = self.X.fillna(self.X.mean())
+            
+            # Split the data
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                self.X, self.y, test_size=0.2, random_state=42, stratify=self.y
+            )
+            
+            # Scale the features
+            if scaling_method == 'standard':
+                self.scaler = StandardScaler()
+            elif scaling_method == 'robust':
+                self.scaler = RobustScaler()
+            else:
+                self.scaler = MinMaxScaler()
+                
+            self.X_train_scaled = self.scaler.fit_transform(self.X_train)
+            self.X_test_scaled = self.scaler.transform(self.X_test)
+            
+            return True
+            
+        except Exception as e:
+            st.error(f"Error preprocessing data: {str(e)}")
+            return False
     
-    df = pd.DataFrame(data)
-    
-    # Create flood risk based on features
-    flood_risk = (
-        (df['rainfall'] > 100).astype(int) * 0.3 +
-        (df['elevation'] < 100).astype(int) * 0.2 +
-        (df['distance_to_river'] < 5).astype(int) * 0.2 +
-        (df['drainage'] == 'poor').astype(int) * 0.15 +
-        (df['previous_floods'] > 3).astype(int) * 0.15
-    )
-    
-    # Add some noise and create binary target
-    flood_risk += np.random.normal(0, 0.1, n_samples)
-    df['flood_risk'] = (flood_risk > 0.5).astype(int)
-    
-    return df
-
-# Model training functions
-def preprocess_data(df):
-    """Preprocess the data for machine learning"""
-    df_processed = df.copy()
-    
-    # Handle missing values
-    numeric_cols = df_processed.select_dtypes(include=[np.number]).columns
-    categorical_cols = df_processed.select_dtypes(include=['object']).columns
-    
-    # Fill missing values
-    for col in numeric_cols:
-        df_processed[col].fillna(df_processed[col].median(), inplace=True)
-    
-    for col in categorical_cols:
-        df_processed[col].fillna(df_processed[col].mode()[0], inplace=True)
-    
-    # Encode categorical variables
-    label_encoders = {}
-    for col in categorical_cols:
-        if col != 'flood_risk':  # Don't encode target variable
-            le = LabelEncoder()
-            df_processed[col] = le.fit_transform(df_processed[col])
-            label_encoders[col] = le
-    
-    return df_processed, label_encoders
-
-def get_ml_models():
-    """Get dictionary of ML models with their parameters"""
-    models = {
-        'Random Forest': {
-            'model': RandomForestClassifier(random_state=42),
-            'params': {
-                'n_estimators': [100, 200, 300],
-                'max_depth': [10, 20, 30, None],
-                'min_samples_split': [2, 5, 10],
-                'min_samples_leaf': [1, 2, 4]
-            }
-        },
-        'XGBoost': {
-            'model': xgb.XGBClassifier(random_state=42),
-            'params': {
-                'n_estimators': [100, 200, 300],
-                'max_depth': [3, 4, 5, 6],
-                'learning_rate': [0.01, 0.1, 0.2],
-                'subsample': [0.8, 0.9, 1.0]
-            }
-        },
-        'LightGBM': {
-            'model': lgb.LGBMClassifier(random_state=42),
-            'params': {
-                'n_estimators': [100, 200, 300],
-                'max_depth': [3, 4, 5, 6],
-                'learning_rate': [0.01, 0.1, 0.2],
-                'num_leaves': [31, 50, 70]
-            }
-        },
-        'Gradient Boosting': {
-            'model': GradientBoostingClassifier(random_state=42),
-            'params': {
-                'n_estimators': [100, 200],
-                'max_depth': [3, 4, 5],
-                'learning_rate': [0.01, 0.1, 0.2]
-            }
-        },
-        'SVM': {
-            'model': SVC(random_state=42, probability=True),
-            'params': {
-                'C': [0.1, 1, 10, 100],
-                'gamma': ['scale', 'auto', 0.001, 0.01],
-                'kernel': ['rbf', 'linear', 'poly']
-            }
-        },
-        'Logistic Regression': {
-            'model': LogisticRegression(random_state=42),
-            'params': {
-                'C': [0.1, 1, 10, 100],
-                'penalty': ['l1', 'l2'],
-                'solver': ['liblinear', 'lbfgs']
-            }
-        },
-        'Neural Network': {
-            'model': MLPClassifier(random_state=42, max_iter=1000),
-            'params': {
-                'hidden_layer_sizes': [(50,), (100,), (50, 50), (100, 50)],
-                'activation': ['relu', 'tanh'],
-                'alpha': [0.0001, 0.001, 0.01]
-            }
-        },
-        'Extra Trees': {
-            'model': ExtraTreesClassifier(random_state=42),
-            'params': {
-                'n_estimators': [100, 200, 300],
-                'max_depth': [10, 20, 30, None],
-                'min_samples_split': [2, 5, 10]
-            }
+    def initialize_models(self):
+        """Initialize all ML models"""
+        self.models = {
+            'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42),
+            'Gradient Boosting': GradientBoostingClassifier(n_estimators=100, random_state=42),
+            'XGBoost': xgb.XGBClassifier(random_state=42),
+            'LightGBM': lgb.LGBMClassifier(random_state=42, verbose=-1),
+            'CatBoost': CatBoostClassifier(random_state=42, verbose=False),
+            'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
+            'SVM': SVC(random_state=42, probability=True),
+            'K-Nearest Neighbors': KNeighborsClassifier(),
+            'Decision Tree': DecisionTreeClassifier(random_state=42),
+            'Naive Bayes': GaussianNB(),
+            'Neural Network': MLPClassifier(random_state=42, max_iter=1000),
+            'AdaBoost': AdaBoostClassifier(random_state=42)
         }
-    }
     
-    return models
-
-# Page functions
-def show_home():
-    """Show home page with project overview"""
-    st.markdown("## 🎯 Project Overview")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("### 🌍 Problem Statement")
-        st.markdown("""
-        Floods are among the most destructive natural hazards globally, causing:
-        - **Loss of life** and economic disruption
-        - **Environmental damage** and infrastructure destruction
-        - **Displacement** of communities
-        - **Agricultural losses** and food security issues
-        
-        Current flood prediction systems have critical limitations:
-        - Computationally intensive physics-based models
-        - Limited real-time forecasting capabilities
-        - Poor performance in data-scarce regions
-        - Lack of multi-modal data integration
-        """)
-    
-    with col2:
-        st.markdown("### 🚀 Our Solution")
-        st.markdown("""
-        **FloodSentinel** addresses these challenges through:
-        - **Advanced ML algorithms** for accurate predictions
-        - **Multi-modal data fusion** for comprehensive analysis
-        - **Real-time processing** capabilities
-        - **User-friendly interface** for decision makers
-        - **Explainable AI** for transparent insights
-        - **Scalable architecture** for global deployment
-        """)
-    
-    st.markdown("### 📊 Key Features")
-    
-    feature_cols = st.columns(4)
-    
-    with feature_cols[0]:
-        st.markdown("""
-        **🔍 Data Explorer**
-        - Interactive visualizations
-        - Statistical analysis
-        - Missing data handling
-        - Feature distributions
-        """)
-    
-    with feature_cols[1]:
-        st.markdown("""
-        **🧠 ML Models**
-        - 8+ algorithms comparison
-        - Hyperparameter tuning
-        - Cross-validation
-        - Feature importance
-        """)
-    
-    with feature_cols[2]:
-        st.markdown("""
-        **📈 Model Comparison**
-        - Performance metrics
-        - ROC curves
-        - Confusion matrices
-        - Statistical tests
-        """)
-    
-    with feature_cols[3]:
-        st.markdown("""
-        **🎯 Predictions**
-        - Real-time forecasting
-        - Risk assessment
-        - Confidence intervals
-        - Actionable insights
-        """)
-
-def show_data_explorer():
-    """Show data exploration page"""
-    st.markdown('<div class="sub-header">📊 Data Explorer</div>', unsafe_allow_html=True)
-    
-    if not st.session_state.data_loaded:
-        if st.button("Load Flood Dataset", type="primary"):
-            df = load_flood_data()
-            if df is not None:
-                st.session_state.df = df
-                st.session_state.data_loaded = True
-                st.rerun()
-    
-    if st.session_state.data_loaded and st.session_state.df is not None:
-        df = st.session_state.df
-        
-        # Dataset overview
-        st.markdown("### Dataset Overview")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Records", f"{len(df):,}")
-        with col2:
-            st.metric("Features", f"{len(df.columns)-1}")
-        with col3:
-            st.metric("Flood Cases", f"{df['flood_risk'].sum():,}")
-        with col4:
-            st.metric("Flood Rate", f"{df['flood_risk'].mean():.1%}")
-        
-        # Data preview
-        st.markdown("### Data Preview")
-        st.dataframe(df.head(10))
-        
-        # Data quality assessment
-        st.markdown("### Data Quality Assessment")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Missing Values**")
-            missing_data = df.isnull().sum()
-            if missing_data.sum() > 0:
-                fig = px.bar(x=missing_data.index, y=missing_data.values, 
-                           title="Missing Values by Column")
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.success("No missing values found!")
-        
-        with col2:
-            st.markdown("**Data Types**")
-            dtypes_df = pd.DataFrame({
-                'Column': df.dtypes.index,
-                'Type': df.dtypes.values
-            })
-            st.dataframe(dtypes_df)
-        
-        # Statistical summary
-        st.markdown("### Statistical Summary")
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        st.dataframe(df[numeric_cols].describe())
-        
-        # Distribution plots
-        st.markdown("### Feature Distributions")
-        
-        # Select features for visualization
-        selected_features = st.multiselect(
-            "Select features to visualize:",
-            options=numeric_cols.tolist(),
-            default=numeric_cols[:4].tolist()
-        )
-        
-        if selected_features:
-            n_cols = min(2, len(selected_features))
-            n_rows = (len(selected_features) + n_cols - 1) // n_cols
-            
-            fig = make_subplots(
-                rows=n_rows, cols=n_cols,
-                subplot_titles=selected_features,
-                vertical_spacing=0.1
-            )
-            
-            for i, feature in enumerate(selected_features):
-                row = i // n_cols + 1
-                col = i % n_cols + 1
-                
-                fig.add_trace(
-                    go.Histogram(x=df[feature], name=feature, showlegend=False),
-                    row=row, col=col
-                )
-            
-            fig.update_layout(height=300 * n_rows, title_text="Feature Distributions")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Correlation analysis
-        st.markdown("### Correlation Analysis")
-        corr_matrix = df[numeric_cols].corr()
-        
-        fig = px.imshow(
-            corr_matrix,
-            text_auto=True,
-            aspect="auto",
-            title="Feature Correlation Matrix"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Target variable analysis
-        st.markdown("### Target Variable Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Flood risk distribution
-            flood_counts = df['flood_risk'].value_counts()
-            fig = px.pie(
-                values=flood_counts.values,
-                names=['No Flood', 'Flood'],
-                title="Flood Risk Distribution"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Feature importance for flood prediction
-            if 'flood_risk' in df.columns:
-                categorical_cols = df.select_dtypes(include=['object']).columns
-                df_encoded = df.copy()
-                
-                # Simple encoding for correlation
-                for col in categorical_cols:
-                    if col != 'flood_risk':
-                        df_encoded[col] = pd.Categorical(df_encoded[col]).codes
-                
-                correlations = df_encoded.corr()['flood_risk'].abs().sort_values(ascending=False)[1:]
-                
-                fig = px.bar(
-                    x=correlations.values,
-                    y=correlations.index,
-                    orientation='h',
-                    title="Feature Correlation with Flood Risk"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-def show_feature_analysis():
-    """Show feature analysis page"""
-    st.markdown('<div class="sub-header">🔍 Feature Analysis</div>', unsafe_allow_html=True)
-    
-    if not st.session_state.data_loaded:
-        st.warning("Please load the dataset first from the Data Explorer page.")
-        return
-    
-    df = st.session_state.df
-    
-    # Feature selection methods
-    st.markdown("### Feature Selection Methods")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Statistical Selection", "🌳 Tree-based Importance", "🔄 Recursive Elimination", "📉 Dimensionality Reduction"])
-    
-    with tab1:
-        st.markdown("#### Statistical Feature Selection")
-        
-        # Prepare data
-        df_processed, _ = preprocess_data(df)
-        
-        # Assume target is the last column or named 'flood_risk'
-        target_col = 'flood_risk' if 'flood_risk' in df_processed.columns else df_processed.columns[-1]
-        X = df_processed.drop(target_col, axis=1)
-        y = df_processed[target_col]
-        
-        # SelectKBest with f_classif
-        k_best = SelectKBest(score_func=f_classif, k='all')
-        k_best.fit(X, y)
-        
-        # Create feature importance dataframe
-        feature_scores = pd.DataFrame({
-            'Feature': X.columns,
-            'Score': k_best.scores_,
-            'P-value': k_best.pvalues_
-        }).sort_values('Score', ascending=False)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Top Features by F-Score**")
-            st.dataframe(feature_scores.head(10))
-        
-        with col2:
-            fig = px.bar(
-                feature_scores.head(10),
-                x='Score',
-                y='Feature',
-                orientation='h',
-                title="Top 10 Features by F-Score"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with tab2:
-        st.markdown("#### Tree-based Feature Importance")
-        
-        # Random Forest feature importance
-        rf = RandomForestClassifier(n_estimators=100, random_state=42)
-        rf.fit(X, y)
-        
-        rf_importance = pd.DataFrame({
-            'Feature': X.columns,
-            'Importance': rf.feature_importances_
-        }).sort_values('Importance', ascending=False)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Random Forest Feature Importance**")
-            st.dataframe(rf_importance.head(10))
-        
-        with col2:
-            fig = px.bar(
-                rf_importance.head(10),
-                x='Importance',
-                y='Feature',
-                orientation='h',
-                title="Top 10 Features by RF Importance"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with tab3:
-        st.markdown("#### Recursive Feature Elimination")
-        
-        # RFE with Random Forest
-        rfe = RFE(RandomForestClassifier(n_estimators=50, random_state=42), n_features_to_select=10)
-        rfe.fit(X, y)
-        
-        rfe_features = pd.DataFrame({
-            'Feature': X.columns,
-            'Selected': rfe.support_,
-            'Ranking': rfe.ranking_
-        }).sort_values('Ranking')
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**RFE Feature Selection**")
-            st.dataframe(rfe_features)
-        
-        with col2:
-            selected_features = rfe_features[rfe_features['Selected']]['Feature'].tolist()
-            fig = px.bar(
-                x=list(range(1, len(selected_features) + 1)),
-                y=selected_features,
-                orientation='h',
-                title="Selected Features by RFE"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-    
-    with tab4:
-        st.markdown("#### Principal Component Analysis")
-        
-        # PCA
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
-        
-        pca = PCA()
-        X_pca = pca.fit_transform(X_scaled)
-        
-        # Explained variance ratio
-        explained_variance = pd.DataFrame({
-            'PC': [f'PC{i+1}' for i in range(len(pca.explained_variance_ratio_))],
-            'Explained_Variance': pca.explained_variance_ratio_,
-            'Cumulative_Variance': np.cumsum(pca.explained_variance_ratio_)
-        })
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig = px.bar(
-                explained_variance.head(10),
-                x='PC',
-                y='Explained_Variance',
-                title="PCA Explained Variance by Component"
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            fig = px.line(
-                explained_variance.head(10),
-                x='PC',
-                y='Cumulative_Variance',
-                title="Cumulative Explained Variance",
-                markers=True
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-def show_ml_models():
-    """Show ML models training page"""
-    st.markdown('<div class="sub-header">🤖 Machine Learning Models</div>', unsafe_allow_html=True)
-    
-    if not st.session_state.data_loaded:
-        st.warning("Please load the dataset first from the Data Explorer page.")
-        return
-    
-    df = st.session_state.df
-    
-    # Model configuration
-    st.markdown("### Model Configuration")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        test_size = st.slider("Test Set Size", 0.1, 0.5, 0.2, 0.05)
-        cv_folds = st.slider("Cross-Validation Folds", 3, 10, 5)
-    
-    with col2:
-        hyperparameter_tuning = st.checkbox("Enable Hyperparameter Tuning", value=True)
-        feature_selection = st.checkbox("Enable Feature Selection", value=True)
-    
-    with col3:
-        scaling_method = st.selectbox("Scaling Method", ["StandardScaler", "RobustScaler", "None"])
-        random_state = st.number_input("Random State", value=42)
-    
-    # Model selection
-    st.markdown("### Select Models to Train")
-    
-    models_dict = get_ml_models()
-    selected_models = st.multiselect(
-        "Choose models:",
-        options=list(models_dict.keys()),
-        default=["Random Forest", "XGBoost", "LightGBM", "Logistic Regression"]
-    )
-    
-    if st.button("Train Models", type="primary"):
-        if not selected_models:
-            st.error("Please select at least one model to train.")
-            return
-        
-        # Prepare data
-        df_processed, label_encoders = preprocess_data(df)
-        
-        target_col = 'flood_risk' if 'flood_risk' in df_processed.columns else df_processed.columns[-1]
-        X = df_processed.drop(target_col, axis=1)
-        y = df_processed[target_col]
-        
-        # Feature selection
-        if feature_selection:
-            with st.spinner("Performing feature selection..."):
-                selector = SelectKBest(score_func=f_classif, k=min(10, X.shape[1]))
-                X = selector.fit_transform(X, y)
-                selected_features = selector.get_support(indices=True)
-                st.info(f"Selected {len(selected_features)} features out of {len(df_processed.columns)-1}")
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state, stratify=y
-        )
-        
-        # Scaling
-        if scaling_method != "None":
-            if scaling_method == "StandardScaler":
-                scaler = StandardScaler()
-            else:
-                scaler = RobustScaler()
-            
-            X_train = scaler.fit_transform(X_train)
-            X_test = scaler.transform(X_test)
-        
-        # Train models
-        results = {}
+    def train_and_evaluate_models(self):
+        """Train and evaluate all models"""
+        self.results = {}
         
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        for i, model_name in enumerate(selected_models):
-            status_text.text(f"Training {model_name}...")
+        for i, (name, model) in enumerate(self.models.items()):
+            status_text.text(f"Training {name}...")
             
-            start_time = time.time()
+            try:
+                # Train the model
+                if name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network']:
+                    model.fit(self.X_train_scaled, self.y_train)
+                    y_pred = model.predict(self.X_test_scaled)
+                    y_pred_proba = model.predict_proba(self.X_test_scaled)[:, 1]
+                else:
+                    model.fit(self.X_train, self.y_train)
+                    y_pred = model.predict(self.X_test)
+                    y_pred_proba = model.predict_proba(self.X_test)[:, 1]
+                
+                # Calculate metrics
+                accuracy = accuracy_score(self.y_test, y_pred)
+                precision = precision_score(self.y_test, y_pred, average='weighted')
+                recall = recall_score(self.y_test, y_pred, average='weighted')
+                f1 = f1_score(self.y_test, y_pred, average='weighted')
+                roc_auc = roc_auc_score(self.y_test, y_pred_proba)
+                mcc = matthews_corrcoef(self.y_test, y_pred)
+                
+                # Cross-validation
+                cv_scores = cross_val_score(model, self.X_train_scaled if name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network'] else self.X_train, 
+                                          self.y_train, cv=5, scoring='accuracy')
+                
+                self.results[name] = {
+                    'model': model,
+                    'accuracy': accuracy,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1_score': f1,
+                    'roc_auc': roc_auc,
+                    'mcc': mcc,
+                    'cv_mean': cv_scores.mean(),
+                    'cv_std': cv_scores.std(),
+                    'y_pred': y_pred,
+                    'y_pred_proba': y_pred_proba
+                }
+                
+            except Exception as e:
+                st.warning(f"Error training {name}: {str(e)}")
+                continue
             
-            model_config = models_dict[model_name]
-            model = model_config['model']
-            
-            if hyperparameter_tuning:
-                # Hyperparameter tuning
-                search = RandomizedSearchCV(
-                    model,
-                    model_config['params'],
-                    n_iter=20,
-                    cv=cv_folds,
-                    scoring='f1',
-                    random_state=random_state,
-                    n_jobs=-1
-                )
-                search.fit(X_train, y_train)
-                best_model = search.best_estimator_
-                best_params = search.best_params_
-            else:
-                best_model = model
-                best_model.fit(X_train, y_train)
-                best_params = {}
-            
-            # Predictions
-            y_pred = best_model.predict(X_test)
-            y_prob = best_model.predict_proba(X_test)[:, 1] if hasattr(best_model, 'predict_proba') else None
-            
-            # Metrics
-            accuracy = accuracy_score(y_test, y_pred)
-            precision = precision_score(y_test, y_pred, average='weighted')
-            recall = recall_score(y_test, y_pred, average='weighted')
-            f1 = f1_score(y_test, y_pred, average='weighted')
-            
-            # Cross-validation
-            cv_scores = cross_val_score(best_model, X_train, y_train, cv=cv_folds, scoring='f1')
-            
-            training_time = time.time() - start_time
-            
-            results[model_name] = {
-                'model': best_model,
-                'best_params': best_params,
-                'accuracy': accuracy,
-                'precision': precision,
-                'recall': recall,
-                'f1_score': f1,
-                'cv_mean': cv_scores.mean(),
-                'cv_std': cv_scores.std(),
-                'training_time': training_time,
-                'y_test': y_test,
-                'y_pred': y_pred,
-                'y_prob': y_prob
-            }
-            
-            progress_bar.progress((i + 1) / len(selected_models))
+            progress_bar.progress((i + 1) / len(self.models))
         
         status_text.text("Training completed!")
-        
-        # Store results in session state
-        st.session_state.models_trained = True
-        st.session_state.model_results = results
-        st.session_state.X_test = X_test
-        st.session_state.y_test = y_test
-        
-        # Display results
-        st.markdown("### Training Results")
-        
-        results_df = pd.DataFrame({
-            'Model': list(results.keys()),
-            'Accuracy': [results[model]['accuracy'] for model in results],
-            'Precision': [results[model]['precision'] for model in results],
-            'Recall': [results[model]['recall'] for model in results],
-            'F1-Score': [results[model]['f1_score'] for model in results],
-            'CV Mean': [results[model]['cv_mean'] for model in results],
-            'CV Std': [results[model]['cv_std'] for model in results],
-            'Training Time (s)': [results[model]['training_time'] for model in results]
-        }).round(4)
-        
-        st.dataframe(results_df)
-        
-        # Best model highlight
-        best_model_name = results_df.loc[results_df['F1-Score'].idxmax(), 'Model']
-        st.success(f"🏆 Best performing model: **{best_model_name}** with F1-Score: {results_df['F1-Score'].max():.4f}")
+        progress_bar.empty()
+        status_text.empty()
 
-def show_model_comparison():
-    """Show model comparison page"""
-    st.markdown('<div class="sub-header">📈 Model Comparison</div>', unsafe_allow_html=True)
+def main():
+    # Header
+    st.markdown('<h1 class="main-header">🌊 FloodSentinel: AI-Powered Flood Risk Assessment</h1>', 
+                unsafe_allow_html=True)
     
-    if not st.session_state.models_trained:
-        st.warning("Please train models first from the ML Models page.")
+    st.markdown("""
+    **FloodSentinel** is an advanced machine learning system for flood risk assessment using multi-temporal 
+    satellite imagery and deep neural networks. This application demonstrates state-of-the-art ML algorithms 
+    for flood prediction and risk analysis.
+    """)
+    
+    # Initialize the ML system
+    if 'flood_ml' not in st.session_state:
+        st.session_state.flood_ml = FloodSentinelML()
+    
+    flood_ml = st.session_state.flood_ml
+    
+    # Sidebar for navigation
+    with st.sidebar:
+        st.header("📊 Navigation")
+        page = st.selectbox(
+            "Select Module",
+            ["🏠 Home", "📈 Data Analysis", "🤖 ML Models", "🎯 Model Comparison", 
+             "📊 Feature Analysis", "🔮 Predictions", "📋 Model Details"]
+        )
+        
+        st.header("⚙️ Settings")
+        scaling_method = st.selectbox(
+            "Scaling Method",
+            ["standard", "robust", "minmax"]
+        )
+    
+    # Load data if not already loaded
+    if flood_ml.data is None:
+        with st.spinner("Loading flood dataset..."):
+            flood_ml.data = flood_ml.load_data()
+    
+    if flood_ml.data is None:
+        st.error("Failed to load dataset. Please check your internet connection and try again.")
         return
     
-    results = st.session_state.model_results
+    # Preprocess data
+    if flood_ml.X is None:
+        if flood_ml.preprocess_data(scaling_method):
+            st.success("Data preprocessing completed successfully!")
+        else:
+            st.error("Failed to preprocess data.")
+            return
     
-    # Performance metrics comparison
-    st.markdown("### Performance Metrics Comparison")
+    # Main content based on selected page
+    if page == "🏠 Home":
+        show_home_page(flood_ml)
+    elif page == "📈 Data Analysis":
+        show_data_analysis(flood_ml)
+    elif page == "🤖 ML Models":
+        show_ml_models(flood_ml)
+    elif page == "🎯 Model Comparison":
+        show_model_comparison(flood_ml)
+    elif page == "📊 Feature Analysis":
+        show_feature_analysis(flood_ml)
+    elif page == "🔮 Predictions":
+        show_predictions(flood_ml)
+    elif page == "📋 Model Details":
+        show_model_details(flood_ml)
+
+def show_home_page(flood_ml):
+    """Display home page with overview"""
     
-    metrics_df = pd.DataFrame({
-        'Model': list(results.keys()),
-        'Accuracy': [results[model]['accuracy'] for model in results],
-        'Precision': [results[model]['precision'] for model in results],
-        'Recall': [results[model]['recall'] for model in results],
-        'F1-Score': [results[model]['f1_score'] for model in results],
-        'CV Mean': [results[model]['cv_mean'] for model in results],
-        'Training Time': [results[model]['training_time'] for model in results]
-    })
-    
-    # Performance comparison charts
     col1, col2 = st.columns(2)
     
     with col1:
-        fig = px.bar(
-            metrics_df.melt(id_vars=['Model'], value_vars=['Accuracy', 'Precision', 'Recall', 'F1-Score']),
-            x='Model',
-            y='value',
-            color='variable',
-            title="Performance Metrics Comparison",
-            barmode='group'
+        st.subheader("📊 Dataset Overview")
+        st.info(f"**Total Samples:** {len(flood_ml.data)}")
+        st.info(f"**Features:** {len(flood_ml.feature_names)}")
+        st.info(f"**Target Classes:** {flood_ml.data['FloodProbability'].nunique()}")
+        
+        # Class distribution
+        class_dist = flood_ml.data['FloodProbability'].value_counts()
+        fig_pie = px.pie(
+            values=class_dist.values,
+            names=class_dist.index,
+            title="Class Distribution"
         )
-        fig.update_xaxis(tickangle=45)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_pie, use_container_width=True)
     
     with col2:
-        fig = px.scatter(
-            metrics_df,
-            x='Training Time',
-            y='F1-Score',
-            size='Accuracy',
-            color='Model',
-            title="Performance vs Training Time",
-            hover_data=['Precision', 'Recall']
+        st.subheader("🎯 Project Objectives")
+        st.markdown("""
+        - **Multi-Modal Analysis**: Combine satellite imagery with meteorological data
+        - **Real-Time Prediction**: Provide immediate flood risk assessments
+        - **Interpretable AI**: Explain model decisions for actionable insights
+        - **Scalable Solution**: Deploy across diverse geographical regions
+        - **Decision Support**: Aid disaster preparedness and mitigation
+        """)
+        
+        st.subheader("🔧 Technical Features")
+        st.markdown("""
+        - **12 ML Algorithms**: From classical to ensemble methods
+        - **Feature Engineering**: Advanced preprocessing and selection
+        - **Model Interpretability**: SHAP values and feature importance
+        - **Cross-Validation**: Robust model evaluation
+        - **Interactive Dashboard**: Real-time visualization and analysis
+        """)
+
+def show_data_analysis(flood_ml):
+    """Display comprehensive data analysis"""
+    
+    st.header("📈 Comprehensive Data Analysis")
+    
+    # Basic statistics
+    st.subheader("📊 Dataset Statistics")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Samples", len(flood_ml.data))
+    with col2:
+        st.metric("Features", len(flood_ml.feature_names))
+    with col3:
+        st.metric("Missing Values", flood_ml.data.isnull().sum().sum())
+    with col4:
+        st.metric("Duplicate Rows", flood_ml.data.duplicated().sum())
+    
+    # Correlation heatmap
+    st.subheader("🔥 Feature Correlation Matrix")
+    corr_matrix = flood_ml.data[flood_ml.feature_names].corr()
+    
+    fig_heatmap = px.imshow(
+        corr_matrix,
+        text_auto=True,
+        aspect="auto",
+        title="Feature Correlation Heatmap"
+    )
+    st.plotly_chart(fig_heatmap, use_container_width=True)
+    
+    # Distribution plots
+    st.subheader("📈 Feature Distributions")
+    
+    # Select features for distribution analysis
+    selected_features = st.multiselect(
+        "Select features to analyze:",
+        flood_ml.feature_names,
+        default=flood_ml.feature_names[:4]
+    )
+    
+    if selected_features:
+        fig_dist = make_subplots(
+            rows=len(selected_features)//2 + len(selected_features)%2,
+            cols=2,
+            subplot_titles=selected_features
         )
-        st.plotly_chart(fig, use_container_width=True)
+        
+        for i, feature in enumerate(selected_features):
+            row = i // 2 + 1
+            col = i % 2 + 1
+            
+            fig_dist.add_trace(
+                go.Histogram(x=flood_ml.data[feature], name=feature),
+                row=row, col=col
+            )
+        
+        fig_dist.update_layout(height=300*len(selected_features)//2 + 150)
+        st.plotly_chart(fig_dist, use_container_width=True)
+    
+    # Box plots for outlier detection
+    st.subheader("📦 Outlier Detection")
+    feature_for_box = st.selectbox("Select feature for box plot:", flood_ml.feature_names)
+    
+    fig_box = px.box(
+        flood_ml.data,
+        y=feature_for_box,
+        color='FloodProbability',
+        title=f"Box Plot: {feature_for_box} by Flood Probability"
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+
+def show_ml_models(flood_ml):
+    """Display ML models training and results"""
+    
+    st.header("🤖 Machine Learning Models")
+    
+    # Initialize and train models
+    if not flood_ml.models:
+        flood_ml.initialize_models()
+    
+    if not flood_ml.results:
+        st.info("Click the button below to train all models.")
+        if st.button("🚀 Train All Models", type="primary"):
+            flood_ml.train_and_evaluate_models()
+            st.success("All models trained successfully!")
+    
+    if flood_ml.results:
+        # Model performance summary
+        st.subheader("📊 Model Performance Summary")
+        
+        # Create results DataFrame
+        results_df = pd.DataFrame({
+            'Model': list(flood_ml.results.keys()),
+            'Accuracy': [flood_ml.results[model]['accuracy'] for model in flood_ml.results],
+            'Precision': [flood_ml.results[model]['precision'] for model in flood_ml.results],
+            'Recall': [flood_ml.results[model]['recall'] for model in flood_ml.results],
+            'F1-Score': [flood_ml.results[model]['f1_score'] for model in flood_ml.results],
+            'ROC-AUC': [flood_ml.results[model]['roc_auc'] for model in flood_ml.results],
+            'MCC': [flood_ml.results[model]['mcc'] for model in flood_ml.results],
+            'CV Mean': [flood_ml.results[model]['cv_mean'] for model in flood_ml.results],
+            'CV Std': [flood_ml.results[model]['cv_std'] for model in flood_ml.results]
+        })
+        
+        # Sort by accuracy
+        results_df = results_df.sort_values('Accuracy', ascending=False)
+        st.dataframe(results_df, use_container_width=True)
+        
+        # Best model highlight
+        best_model = results_df.iloc[0]['Model']
+        st.success(f"🏆 Best Model: **{best_model}** with {results_df.iloc[0]['Accuracy']:.4f} accuracy")
+        
+        # Model performance visualization
+        st.subheader("📈 Model Performance Visualization")
+        
+        # Bar chart of accuracies
+        fig_bar = px.bar(
+            results_df,
+            x='Model',
+            y='Accuracy',
+            title='Model Accuracy Comparison',
+            color='Accuracy',
+            color_continuous_scale='viridis'
+        )
+        fig_bar.update_xaxes(tickangle=45)
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # Radar chart for multiple metrics
+        st.subheader("🎯 Multi-Metric Radar Chart")
+        
+        selected_models = st.multiselect(
+            "Select models for radar chart:",
+            list(flood_ml.results.keys()),
+            default=list(flood_ml.results.keys())[:5]
+        )
+        
+        if selected_models:
+            fig_radar = go.Figure()
+            
+            metrics = ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'ROC-AUC']
+            
+            for model in selected_models:
+                values = [
+                    flood_ml.results[model]['accuracy'],
+                    flood_ml.results[model]['precision'],
+                    flood_ml.results[model]['recall'],
+                    flood_ml.results[model]['f1_score'],
+                    flood_ml.results[model]['roc_auc']
+                ]
+                
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=values,
+                    theta=metrics,
+                    fill='toself',
+                    name=model
+                ))
+            
+            fig_radar.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, 1]
+                    )),
+                showlegend=True,
+                title="Model Performance Radar Chart"
+            )
+            
+            st.plotly_chart(fig_radar, use_container_width=True)
+
+def show_model_comparison(flood_ml):
+    """Display detailed model comparison"""
+    
+    st.header("🎯 Advanced Model Comparison")
+    
+    if not flood_ml.results:
+        st.warning("Please train the models first in the ML Models section.")
+        return
     
     # ROC Curves
-    st.markdown("### ROC Curves Comparison")
+    st.subheader("📈 ROC Curves Comparison")
     
-    fig = go.Figure()
+    fig_roc = go.Figure()
     
-    for model_name in results:
-        if results[model_name]['y_prob'] is not None:
-            fpr, tpr, _ = roc_curve(results[model_name]['y_test'], results[model_name]['y_prob'])
-            auc = roc_auc_score(results[model_name]['y_test'], results[model_name]['y_prob'])
-            
-            fig.add_trace(go.Scatter(
-                x=fpr,
-                y=tpr,
-                mode='lines',
-                name=f'{model_name} (AUC = {auc:.3f})',
-                line=dict(width=2)
-            ))
+    for model_name in flood_ml.results:
+        y_pred_proba = flood_ml.results[model_name]['y_pred_proba']
+        fpr, tpr, _ = roc_curve(flood_ml.y_test, y_pred_proba)
+        auc_score = flood_ml.results[model_name]['roc_auc']
+        
+        fig_roc.add_trace(go.Scatter(
+            x=fpr,
+            y=tpr,
+            mode='lines',
+            name=f'{model_name} (AUC = {auc_score:.3f})'
+        ))
     
     # Add diagonal line
-    fig.add_trace(go.Scatter(
+    fig_roc.add_trace(go.Scatter(
         x=[0, 1],
         y=[0, 1],
         mode='lines',
@@ -871,528 +536,440 @@ def show_model_comparison():
         line=dict(dash='dash', color='gray')
     ))
     
-    fig.update_layout(
+    fig_roc.update_layout(
         title='ROC Curves Comparison',
         xaxis_title='False Positive Rate',
         yaxis_title='True Positive Rate',
-        width=800,
-        height=600
+        showlegend=True
     )
     
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig_roc, use_container_width=True)
     
-    # Confusion Matrices
-    st.markdown("### Confusion Matrices")
+    # Confusion matrices
+    st.subheader("🔍 Confusion Matrices")
     
-    n_models = len(results)
-    n_cols = min(3, n_models)
-    n_rows = (n_models + n_cols - 1) // n_cols
-    
-    fig = make_subplots(
-        rows=n_rows,
-        cols=n_cols,
-        subplot_titles=list(results.keys()),
-        specs=[[{"type": "heatmap"} for _ in range(n_cols)] for _ in range(n_rows)]
+    selected_models_cm = st.multiselect(
+        "Select models for confusion matrix:",
+        list(flood_ml.results.keys()),
+        default=[list(flood_ml.results.keys())[0]]
     )
     
-    for i, model_name in enumerate(results):
-        row = i // n_cols + 1
-        col = i % n_cols + 1
+    if selected_models_cm:
+        cols = st.columns(len(selected_models_cm))
         
-        cm = confusion_matrix(results[model_name]['y_test'], results[model_name]['y_pred'])
-        
-        fig.add_trace(
-            go.Heatmap(
-                z=cm,
-                x=['Predicted No Flood', 'Predicted Flood'],
-                y=['Actual No Flood', 'Actual Flood'],
-                colorscale='Blues',
-                showscale=i == 0,
-                text=cm,
-                texttemplate="%{text}",
-                textfont={"size": 12}
-            ),
-            row=row,
-            col=col
-        )
+        for i, model_name in enumerate(selected_models_cm):
+            with cols[i]:
+                cm = confusion_matrix(flood_ml.y_test, flood_ml.results[model_name]['y_pred'])
+                
+                fig_cm = px.imshow(
+                    cm,
+                    text_auto=True,
+                    aspect="auto",
+                    title=f"{model_name}",
+                    labels=dict(x="Predicted", y="Actual")
+                )
+                
+                st.plotly_chart(fig_cm, use_container_width=True)
     
-    fig.update_layout(
-        title_text="Confusion Matrices Comparison",
-        height=300 * n_rows
-    )
+    # Statistical significance testing
+    st.subheader("📊 Statistical Analysis")
     
-    st.plotly_chart(fig, use_container_width=True)
+    # Create performance comparison table
+    comparison_data = []
+    for model_name in flood_ml.results:
+        comparison_data.append({
+            'Model': model_name,
+            'Accuracy': flood_ml.results[model_name]['accuracy'],
+            'Precision': flood_ml.results[model_name]['precision'],
+            'Recall': flood_ml.results[model_name]['recall'],
+            'F1-Score': flood_ml.results[model_name]['f1_score'],
+            'ROC-AUC': flood_ml.results[model_name]['roc_auc'],
+            'MCC': flood_ml.results[model_name]['mcc']
+        })
     
-    # Feature Importance (for tree-based models)
-    st.markdown("### Feature Importance Analysis")
+    comparison_df = pd.DataFrame(comparison_data)
     
-    tree_based_models = ['Random Forest', 'XGBoost', 'LightGBM', 'Gradient Boosting', 'Extra Trees']
-    available_tree_models = [model for model in results.keys() if model in tree_based_models]
+    # Rank models by each metric
+    st.subheader("🏆 Model Rankings by Metric")
+    
+    metrics = ['Accuracy', 'Precision', 'Recall', 'F1-Score', 'ROC-AUC', 'MCC']
+    ranking_data = {}
+    
+    for metric in metrics:
+        sorted_models = comparison_df.sort_values(metric, ascending=False)
+        ranking_data[metric] = sorted_models['Model'].tolist()
+    
+    ranking_df = pd.DataFrame(ranking_data)
+    
+    # Add rank numbers
+    for col in ranking_df.columns:
+        ranking_df[col] = [f"{i+1}. {model}" for i, model in enumerate(ranking_df[col])]
+    
+    st.dataframe(ranking_df, use_container_width=True)
+
+def show_feature_analysis(flood_ml):
+    """Display feature importance and analysis"""
+    
+    st.header("📊 Feature Analysis & Importance")
+    
+    if not flood_ml.results:
+        st.warning("Please train the models first in the ML Models section.")
+        return
+    
+    # Feature importance from tree-based models
+    st.subheader("🌳 Feature Importance from Tree-based Models")
+    
+    tree_models = ['Random Forest', 'Gradient Boosting', 'XGBoost', 'LightGBM', 'CatBoost']
+    available_tree_models = [m for m in tree_models if m in flood_ml.results]
     
     if available_tree_models:
-        selected_model = st.selectbox("Select model for feature importance:", available_tree_models)
+        selected_tree_model = st.selectbox(
+            "Select tree-based model:",
+            available_tree_models
+        )
         
-        if hasattr(results[selected_model]['model'], 'feature_importances_'):
-            importances = results[selected_model]['model'].feature_importances_
-            
-            # Create feature names (assuming we have them)
-            feature_names = [f'Feature_{i}' for i in range(len(importances))]
-            
-            importance_df = pd.DataFrame({
-                'Feature': feature_names,
-                'Importance': importances
-            }).sort_values('Importance', ascending=False)
-            
-            fig = px.bar(
-                importance_df.head(15),
-                x='Importance',
-                y='Feature',
-                orientation='h',
-                title=f"Top 15 Feature Importances - {selected_model}"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        model = flood_ml.results[selected_tree_model]['model']
+        feature_importance = model.feature_importances_
+        
+        # Create feature importance DataFrame
+        importance_df = pd.DataFrame({
+            'Feature': flood_ml.feature_names,
+            'Importance': feature_importance
+        }).sort_values('Importance', ascending=False)
+        
+        # Plot feature importance
+        fig_importance = px.bar(
+            importance_df,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title=f'Feature Importance - {selected_tree_model}'
+        )
+        fig_importance.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig_importance, use_container_width=True)
+        
+        # Top features
+        st.subheader("🔝 Top 10 Most Important Features")
+        st.dataframe(importance_df.head(10), use_container_width=True)
     
-    # Model comparison table
-    st.markdown("### Detailed Model Comparison")
+    # Feature selection
+    st.subheader("🎯 Feature Selection Analysis")
     
-    comparison_df = pd.DataFrame({
-        'Model': list(results.keys()),
-        'Accuracy': [f"{results[model]['accuracy']:.4f}" for model in results],
-        'Precision': [f"{results[model]['precision']:.4f}" for model in results],
-        'Recall': [f"{results[model]['recall']:.4f}" for model in results],
-        'F1-Score': [f"{results[model]['f1_score']:.4f}" for model in results],
-        'CV Mean ± Std': [f"{results[model]['cv_mean']:.4f} ± {results[model]['cv_std']:.4f}" for model in results],
-        'Training Time (s)': [f"{results[model]['training_time']:.2f}" for model in results]
-    })
+    # Univariate feature selection
+    k_best = SelectKBest(f_classif, k=10)
+    k_best.fit(flood_ml.X_train, flood_ml.y_train)
     
-    st.dataframe(comparison_df)
+    selected_features = flood_ml.X_train.columns[k_best.get_support()]
+    feature_scores = k_best.scores_[k_best.get_support()]
     
-    # Best model summary
-    best_model_name = max(results.keys(), key=lambda x: results[x]['f1_score'])
-    best_model_results = results[best_model_name]
+    fs_df = pd.DataFrame({
+        'Feature': selected_features,
+        'Score': feature_scores
+    }).sort_values('Score', ascending=False)
     
-    st.markdown("### 🏆 Best Model Summary")
+    fig_fs = px.bar(
+        fs_df,
+        x='Score',
+        y='Feature',
+        orientation='h',
+        title='Top 10 Features (Univariate Selection)'
+    )
+    fig_fs.update_layout(yaxis={'categoryorder': 'total ascending'})
+    st.plotly_chart(fig_fs, use_container_width=True)
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Correlation with target
+    st.subheader("🎯 Feature Correlation with Target")
     
-    with col1:
-        st.metric("Best Model", best_model_name)
-        st.metric("F1-Score", f"{best_model_results['f1_score']:.4f}")
+    target_corr = flood_ml.data[flood_ml.feature_names].corrwith(flood_ml.data['FloodProbability'])
+    target_corr_df = pd.DataFrame({
+        'Feature': target_corr.index,
+        'Correlation': target_corr.values
+    }).sort_values('Correlation', key=abs, ascending=False)
     
-    with col2:
-        st.metric("Accuracy", f"{best_model_results['accuracy']:.4f}")
-        st.metric("Precision", f"{best_model_results['precision']:.4f}")
-    
-    with col3:
-        st.metric("Recall", f"{best_model_results['recall']:.4f}")
-        st.metric("CV Score", f"{best_model_results['cv_mean']:.4f}")
-    
-    with col4:
-        st.metric("Training Time", f"{best_model_results['training_time']:.2f}s")
-        st.metric("CV Std", f"{best_model_results['cv_std']:.4f}")
+    fig_corr = px.bar(
+        target_corr_df,
+        x='Correlation',
+        y='Feature',
+        orientation='h',
+        title='Feature Correlation with Flood Probability',
+        color='Correlation',
+        color_continuous_scale='RdYlBu'
+    )
+    fig_corr.update_layout(yaxis={'categoryorder': 'total ascending'})
+    st.plotly_chart(fig_corr, use_container_width=True)
 
-def show_predictions():
-    """Show predictions page"""
-    st.markdown('<div class="sub-header">🎯 Flood Risk Predictions</div>', unsafe_allow_html=True)
+def show_predictions(flood_ml):
+    """Display prediction interface"""
     
-    if not st.session_state.models_trained:
-        st.warning("Please train models first from the ML Models page.")
+    st.header("🔮 Flood Risk Prediction")
+    
+    if not flood_ml.results:
+        st.warning("Please train the models first in the ML Models section.")
         return
     
-    results = st.session_state.model_results
+    st.subheader("📝 Enter Feature Values")
     
-    # Model selection for predictions
-    st.markdown("### Select Model for Predictions")
-    
-    model_options = list(results.keys())
-    selected_model = st.selectbox("Choose model:", model_options)
-    
-    # Input methods
-    st.markdown("### Prediction Input")
-    
-    input_method = st.radio(
-        "Choose input method:",
-        ["Manual Input", "Batch Upload", "Random Sample"]
-    )
-    
-    if input_method == "Manual Input":
-        st.markdown("#### Enter Feature Values")
+    # Create input form
+    with st.form("prediction_form"):
+        col1, col2 = st.columns(2)
         
-        # Create input fields based on sample data structure
-        col1, col2, col3 = st.columns(3)
+        input_data = {}
         
-        with col1:
-            rainfall = st.number_input("Rainfall (mm)", min_value=0.0, max_value=500.0, value=50.0)
-            temperature = st.number_input("Temperature (°C)", min_value=-20.0, max_value=50.0, value=25.0)
-            humidity = st.number_input("Humidity (%)", min_value=0.0, max_value=100.0, value=70.0)
-            wind_speed = st.number_input("Wind Speed (km/h)", min_value=0.0, max_value=200.0, value=20.0)
+        for i, feature in enumerate(flood_ml.feature_names):
+            if i % 2 == 0:
+                with col1:
+                    input_data[feature] = st.number_input(
+                        f"{feature}",
+                        value=float(flood_ml.X[feature].mean()),
+                        help=f"Mean: {flood_ml.X[feature].mean():.2f}, Std: {flood_ml.X[feature].std():.2f}"
+                    )
+            else:
+                with col2:
+                    input_data[feature] = st.number_input(
+                        f"{feature}",
+                        value=float(flood_ml.X[feature].mean()),
+                        help=f"Mean: {flood_ml.X[feature].mean():.2f}, Std: {flood_ml.X[feature].std():.2f}"
+                    )
         
-        with col2:
-            pressure = st.number_input("Pressure (hPa)", min_value=900.0, max_value=1100.0, value=1013.0)
-            elevation = st.number_input("Elevation (m)", min_value=0.0, max_value=5000.0, value=100.0)
-            slope = st.number_input("Slope (degrees)", min_value=0.0, max_value=90.0, value=5.0)
-            distance_to_river = st.number_input("Distance to River (km)", min_value=0.0, max_value=100.0, value=10.0)
+        submitted = st.form_submit_button("🔮 Predict Flood Risk", type="primary")
         
-        with col3:
-            soil_type = st.selectbox("Soil Type", ["clay", "sand", "loam", "silt"])
-            drainage = st.selectbox("Drainage", ["poor", "moderate", "good"])
-            land_use = st.selectbox("Land Use", ["urban", "agricultural", "forest", "water"])
-            previous_floods = st.number_input("Previous Floods", min_value=0, max_value=20, value=2)
-        
-        if st.button("Predict Flood Risk", type="primary"):
-            # Prepare input data
-            input_data = pd.DataFrame({
-                'rainfall': [rainfall],
-                'temperature': [temperature],
-                'humidity': [humidity],
-                'wind_speed': [wind_speed],
-                'pressure': [pressure],
-                'elevation': [elevation],
-                'slope': [slope],
-                'distance_to_river': [distance_to_river],
-                'soil_type': [soil_type],
-                'drainage': [drainage],
-                'land_use': [land_use],
-                'previous_floods': [previous_floods]
+        if submitted:
+            # Create prediction dataframe
+            pred_df = pd.DataFrame([input_data])
+            
+            # Make predictions with all models
+            st.subheader("📊 Prediction Results")
+            
+            predictions = {}
+            probabilities = {}
+            
+            for model_name, model_data in flood_ml.results.items():
+                model = model_data['model']
+                
+                try:
+                    # Scale input if needed
+                    if model_name in ['Logistic Regression', 'SVM', 'K-Nearest Neighbors', 'Neural Network']:
+                        pred_scaled = flood_ml.scaler.transform(pred_df)
+                        pred = model.predict(pred_scaled)[0]
+                        pred_proba = model.predict_proba(pred_scaled)[0]
+                    else:
+                        pred = model.predict(pred_df)[0]
+                        pred_proba = model.predict_proba(pred_df)[0]
+                    
+                    predictions[model_name] = pred
+                    probabilities[model_name] = pred_proba[1]  # Probability of positive class
+                    
+                except Exception as e:
+                    st.warning(f"Error with {model_name}: {str(e)}")
+                    continue
+            
+            # Display predictions
+            pred_results = pd.DataFrame({
+                'Model': list(predictions.keys()),
+                'Prediction': list(predictions.values()),
+                'Flood Probability': [f"{prob:.4f}" for prob in probabilities.values()]
             })
             
-            # Encode categorical variables (simple encoding for demo)
-            input_data_encoded = input_data.copy()
-            categorical_columns = ['soil_type', 'drainage', 'land_use']
+            st.dataframe(pred_results, use_container_width=True)
             
-            for col in categorical_columns:
-                input_data_encoded[col] = pd.Categorical(input_data_encoded[col]).codes
+            # Ensemble prediction (majority vote)
+            ensemble_pred = max(set(predictions.values()), key=list(predictions.values()).count)
+            avg_probability = np.mean(list(probabilities.values()))
             
-            # Make prediction
-            model = results[selected_model]['model']
-            prediction = model.predict(input_data_encoded)[0]
-            
-            if hasattr(model, 'predict_proba'):
-                probability = model.predict_proba(input_data_encoded)[0]
-                flood_probability = probability[1]
-            else:
-                flood_probability = None
-            
-            # Display results
-            st.markdown("### Prediction Results")
+            st.subheader("🎯 Ensemble Prediction")
             
             col1, col2 = st.columns(2)
-            
             with col1:
-                if prediction == 1:
-                    st.error("⚠️ **HIGH FLOOD RISK DETECTED**")
-                    st.markdown("**Recommendation:** Immediate action required!")
-                else:
-                    st.success("✅ **LOW FLOOD RISK**")
-                    st.markdown("**Status:** Normal conditions")
-            
+                st.metric("Ensemble Prediction", f"Class {ensemble_pred}")
             with col2:
-                if flood_probability is not None:
-                    st.metric("Flood Probability", f"{flood_probability:.2%}")
-                    
-                    # Risk level
-                    if flood_probability < 0.3:
-                        risk_level = "Low"
-                        risk_color = "green"
-                    elif flood_probability < 0.7:
-                        risk_level = "Medium"
-                        risk_color = "orange"
-                    else:
-                        risk_level = "High"
-                        risk_color = "red"
-                    
-                    st.markdown(f"**Risk Level:** <span style='color: {risk_color}'>{risk_level}</span>", 
-                              unsafe_allow_html=True)
+                st.metric("Average Probability", f"{avg_probability:.4f}")
             
-            # Feature contribution (for tree-based models)
-            if hasattr(model, 'feature_importances_'):
-                st.markdown("### Feature Contribution Analysis")
-                
-                feature_names = list(input_data_encoded.columns)
-                feature_values = input_data_encoded.iloc[0].values
-                feature_importances = model.feature_importances_
-                
-                contribution_df = pd.DataFrame({
-                    'Feature': feature_names,
-                    'Value': feature_values,
-                    'Importance': feature_importances,
-                    'Contribution': feature_values * feature_importances
-                }).sort_values('Contribution', ascending=False)
-                
-                fig = px.bar(
-                    contribution_df,
-                    x='Contribution',
-                    y='Feature',
-                    orientation='h',
-                    title="Feature Contribution to Prediction",
-                    color='Contribution',
-                    color_continuous_scale='RdYlBu_r'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    
-    elif input_method == "Batch Upload":
-        st.markdown("#### Upload CSV File for Batch Predictions")
-        
-        uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
-        
-        if uploaded_file is not None:
-            batch_data = pd.read_csv(uploaded_file)
-            st.write("Uploaded data preview:")
-            st.dataframe(batch_data.head())
+            # Risk assessment
+            if avg_probability > 0.7:
+                st.error("🚨 HIGH FLOOD RISK - Immediate action recommended!")
+            elif avg_probability > 0.5:
+                st.warning("⚠️ MODERATE FLOOD RISK - Monitor conditions closely")
+            else:
+                st.success("✅ LOW FLOOD RISK - Normal conditions")
             
-            if st.button("Run Batch Predictions"):
-                # Process batch data (simplified)
-                st.info("Batch prediction functionality would be implemented here")
-                st.write("This would process all rows and return predictions")
-    
-    else:  # Random Sample
-        st.markdown("#### Generate Random Sample Predictions")
-        
-        n_samples = st.slider("Number of samples", 1, 100, 10)
-        
-        if st.button("Generate Random Predictions"):
-            # Generate random samples
-            np.random.seed(42)
-            
-            random_data = pd.DataFrame({
-                'rainfall': np.random.exponential(50, n_samples),
-                'temperature': np.random.normal(25, 10, n_samples),
-                'humidity': np.random.normal(70, 15, n_samples),
-                'wind_speed': np.random.gamma(2, 10, n_samples),
-                'pressure': np.random.normal(1013, 20, n_samples),
-                'elevation': np.random.uniform(0, 1000, n_samples),
-                'slope': np.random.uniform(0, 45, n_samples),
-                'distance_to_river': np.random.uniform(0, 50, n_samples),
-                'soil_type': np.random.choice([0, 1, 2, 3], n_samples),
-                'drainage': np.random.choice([0, 1, 2], n_samples),
-                'land_use': np.random.choice([0, 1, 2, 3], n_samples),
-                'previous_floods': np.random.poisson(2, n_samples)
-            })
-            
-            # Make predictions
-            model = results[selected_model]['model']
-            predictions = model.predict(random_data)
-            
-            if hasattr(model, 'predict_proba'):
-                probabilities = model.predict_proba(random_data)[:, 1]
-                random_data['flood_probability'] = probabilities
-            
-            random_data['prediction'] = predictions
-            random_data['risk_level'] = random_data.get('flood_probability', predictions).apply(
-                lambda x: 'High' if x > 0.7 else 'Medium' if x > 0.3 else 'Low'
+            # Prediction confidence visualization
+            fig_pred = px.bar(
+                pred_results,
+                x='Model',
+                y='Flood Probability',
+                title='Flood Probability Predictions by Model',
+                color='Flood Probability',
+                color_continuous_scale='Reds'
             )
-            
-            st.markdown("### Random Sample Predictions")
-            st.dataframe(random_data)
-            
-            # Summary statistics
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Samples", len(random_data))
-                st.metric("High Risk", len(random_data[random_data['prediction'] == 1]))
-            
-            with col2:
-                st.metric("Low Risk", len(random_data[random_data['prediction'] == 0]))
-                st.metric("Average Risk", f"{random_data['prediction'].mean():.2%}")
-            
-            with col3:
-                if 'flood_probability' in random_data.columns:
-                    st.metric("Mean Probability", f"{random_data['flood_probability'].mean():.2%}")
-                    st.metric("Max Probability", f"{random_data['flood_probability'].max():.2%}")
+            fig_pred.update_xaxes(tickangle=45)
+            st.plotly_chart(fig_pred, use_container_width=True)
 
-def show_reports():
-    """Show reports page"""
-    st.markdown('<div class="sub-header">📋 Analysis Reports</div>', unsafe_allow_html=True)
+def show_model_details(flood_ml):
+    """Display detailed model information"""
     
-    if not st.session_state.data_loaded:
-        st.warning("Please load the dataset first to generate reports.")
+    st.header("📋 Model Details & Interpretability")
+    
+    if not flood_ml.results:
+        st.warning("Please train the models first in the ML Models section.")
         return
     
-    df = st.session_state.df
-    
-    # Report selection
-    report_type = st.selectbox(
-        "Select Report Type:",
-        ["Executive Summary", "Technical Report", "Model Performance Report", "Data Quality Report"]
+    # Model selection
+    selected_model = st.selectbox(
+        "Select model for detailed analysis:",
+        list(flood_ml.results.keys())
     )
     
-    if report_type == "Executive Summary":
-        st.markdown("### 📊 Executive Summary Report")
-        
-        # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Dataset Size", f"{len(df):,} records")
-        with col2:
-            st.metric("Features", f"{len(df.columns)-1}")
-        with col3:
-            st.metric("Flood Cases", f"{df['flood_risk'].sum():,}")
-        with col4:
-            st.metric("Flood Rate", f"{df['flood_risk'].mean():.1%}")
-        
-        # Key findings
-        st.markdown("#### Key Findings")
-        st.markdown("""
-        - **Dataset Coverage**: Comprehensive dataset with multiple environmental and geographical features
-        - **Flood Distribution**: Balanced representation of flood and non-flood scenarios
-        - **Data Quality**: High-quality dataset with minimal missing values
-        - **Feature Diversity**: Multi-modal features including weather, terrain, and historical data
-        """)
-        
-        if st.session_state.models_trained:
-            results = st.session_state.model_results
-            best_model = max(results.keys(), key=lambda x: results[x]['f1_score'])
-            
-            st.markdown("#### Model Performance Summary")
-            st.markdown(f"""
-            - **Best Performing Model**: {best_model}
-            - **Accuracy**: {results[best_model]['accuracy']:.1%}
-            - **F1-Score**: {results[best_model]['f1_score']:.3f}
-            - **Cross-Validation Score**: {results[best_model]['cv_mean']:.3f} ± {results[best_model]['cv_std']:.3f}
-            """)
-        
-        # Recommendations
-        st.markdown("#### Recommendations")
-        st.markdown("""
-        1. **Deploy the best-performing model** for real-time flood risk assessment
-        2. **Integrate with early warning systems** for proactive disaster management
-        3. **Expand data collection** to include more geographical regions
-        4. **Implement continuous model monitoring** and retraining
-        5. **Develop mobile applications** for field personnel
-        """)
+    model_data = flood_ml.results[selected_model]
+    model = model_data['model']
     
-    elif report_type == "Technical Report":
-        st.markdown("### 🔧 Technical Report")
-        
-        # Data preprocessing
-        st.markdown("#### Data Preprocessing")
-        st.markdown("""
-        - **Missing Value Treatment**: Median imputation for numerical, mode for categorical
-        - **Feature Encoding**: Label encoding for categorical variables
-        - **Scaling**: StandardScaler/RobustScaler applied for algorithm compatibility
-        - **Feature Selection**: Statistical and tree-based methods employed
-        """)
-        
-        # Model architecture
-        st.markdown("#### Model Architecture")
-        
-        if st.session_state.models_trained:
-            results = st.session_state.model_results
-            
-            for model_name, model_results in results.items():
-                with st.expander(f"{model_name} Configuration"):
-                    st.json(model_results['best_params'])
-        
-        # Performance metrics
-        st.markdown("#### Performance Metrics")
-        st.markdown("""
-        - **Accuracy**: Overall correctness of predictions
-        - **Precision**: Proportion of true positives among predicted positives
-        - **Recall**: Proportion of true positives among actual positives
-        - **F1-Score**: Harmonic mean of precision and recall
-        - **ROC-AUC**: Area under the receiver operating characteristic curve
-        """)
+    # Model information
+    st.subheader(f"📊 {selected_model} - Detailed Information")
     
-    elif report_type == "Model Performance Report":
-        if not st.session_state.models_trained:
-            st.warning("Please train models first to generate this report.")
-            return
-        
-        st.markdown("### 📈 Model Performance Report")
-        
-        results = st.session_state.model_results
-        
-        # Performance comparison table
-        performance_df = pd.DataFrame({
-            'Model': list(results.keys()),
-            'Accuracy': [results[model]['accuracy'] for model in results],
-            'Precision': [results[model]['precision'] for model in results],
-            'Recall': [results[model]['recall'] for model in results],
-            'F1-Score': [results[model]['f1_score'] for model in results],
-            'CV Score': [results[model]['cv_mean'] for model in results],
-            'Training Time': [results[model]['training_time'] for model in results]
-        })
-        
-        st.dataframe(performance_df.round(4))
-        
-        # Best model analysis
-        best_model_name = max(results.keys(), key=lambda x: results[x]['f1_score'])
-        
-        st.markdown(f"#### Best Model: {best_model_name}")
-        st.markdown(f"""
-        **Performance Metrics:**
-        - Accuracy: {results[best_model_name]['accuracy']:.4f}
-        - Precision: {results[best_model_name]['precision']:.4f}
-        - Recall: {results[best_model_name]['recall']:.4f}
-        - F1-Score: {results[best_model_name]['f1_score']:.4f}
-        
-        **Cross-Validation:**
-        - Mean Score: {results[best_model_name]['cv_mean']:.4f}
-        - Standard Deviation: {results[best_model_name]['cv_std']:.4f}
-        
-        **Training Time:** {results[best_model_name]['training_time']:.2f} seconds
-        """)
+    col1, col2, col3 = st.columns(3)
     
-    else:  # Data Quality Report
-        st.markdown("### 📋 Data Quality Report")
+    with col1:
+        st.metric("Accuracy", f"{model_data['accuracy']:.4f}")
+        st.metric("Precision", f"{model_data['precision']:.4f}")
+    
+    with col2:
+        st.metric("Recall", f"{model_data['recall']:.4f}")
+        st.metric("F1-Score", f"{model_data['f1_score']:.4f}")
+    
+    with col3:
+        st.metric("ROC-AUC", f"{model_data['roc_auc']:.4f}")
+        st.metric("MCC", f"{model_data['mcc']:.4f}")
+    
+    # Cross-validation results
+    st.subheader("🔄 Cross-Validation Results")
+    st.info(f"CV Mean: {model_data['cv_mean']:.4f} ± {model_data['cv_std']:.4f}")
+    
+    # Classification report
+    st.subheader("📝 Classification Report")
+    class_report = classification_report(
+        flood_ml.y_test, 
+        model_data['y_pred'], 
+        output_dict=True
+    )
+    
+    # Convert to DataFrame for better display
+    report_df = pd.DataFrame(class_report).transpose()
+    st.dataframe(report_df, use_container_width=True)
+    
+    # Model-specific interpretability
+    st.subheader("🔍 Model Interpretability")
+    
+    if selected_model in ['Random Forest', 'Gradient Boosting', 'XGBoost', 'LightGBM', 'CatBoost', 'Decision Tree']:
+        # Feature importance
+        feature_importance = model.feature_importances_
+        importance_df = pd.DataFrame({
+            'Feature': flood_ml.feature_names,
+            'Importance': feature_importance
+        }).sort_values('Importance', ascending=False)
         
-        # Missing values analysis
-        missing_values = df.isnull().sum()
+        fig_model_importance = px.bar(
+            importance_df.head(10),
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title=f'Top 10 Feature Importance - {selected_model}'
+        )
+        fig_model_importance.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig_model_importance, use_container_width=True)
         
-        st.markdown("#### Missing Values Analysis")
-        if missing_values.sum() == 0:
-            st.success("✅ No missing values found in the dataset")
-        else:
-            st.dataframe(missing_values[missing_values > 0])
+        # Feature importance table
+        st.dataframe(importance_df, use_container_width=True)
+    
+    elif selected_model == 'Logistic Regression':
+        # Coefficients
+        coefficients = model.coef_[0]
+        coef_df = pd.DataFrame({
+            'Feature': flood_ml.feature_names,
+            'Coefficient': coefficients
+        }).sort_values('Coefficient', key=abs, ascending=False)
         
-        # Data types
-        st.markdown("#### Data Types")
-        dtype_df = pd.DataFrame({
-            'Column': df.dtypes.index,
-            'Data Type': df.dtypes.values,
-            'Non-Null Count': df.count().values,
-            'Null Count': df.isnull().sum().values
-        })
-        st.dataframe(dtype_df)
+        fig_coef = px.bar(
+            coef_df,
+            x='Coefficient',
+            y='Feature',
+            orientation='h',
+            title='Logistic Regression Coefficients',
+            color='Coefficient',
+            color_continuous_scale='RdYlBu'
+        )
+        fig_coef.update_layout(yaxis={'categoryorder': 'total ascending'})
+        st.plotly_chart(fig_coef, use_container_width=True)
         
-        # Statistical summary
-        st.markdown("#### Statistical Summary")
-        st.dataframe(df.describe())
-        
-        # Data quality score
-        total_cells = df.shape[0] * df.shape[1]
-        missing_cells = df.isnull().sum().sum()
-        quality_score = (total_cells - missing_cells) / total_cells
-        
-        st.markdown("#### Overall Data Quality Score")
-        st.metric("Quality Score", f"{quality_score:.2%}")
-        
-        if quality_score > 0.95:
-            st.success("Excellent data quality!")
-        elif quality_score > 0.80:
-            st.warning("Good data quality with minor issues")
-        else:
-            st.error("Data quality needs improvement")
+        st.dataframe(coef_df, use_container_width=True)
+    
+    # Prediction distribution
+    st.subheader("📈 Prediction Distribution")
+    
+    pred_dist = pd.DataFrame({
+        'Actual': flood_ml.y_test,
+        'Predicted': model_data['y_pred']
+    })
+    
+    fig_pred_dist = px.histogram(
+        pred_dist,
+        x='Predicted',
+        color='Actual',
+        barmode='overlay',
+        title='Prediction Distribution by Actual Class',
+        opacity=0.7
+    )
+    st.plotly_chart(fig_pred_dist, use_container_width=True)
 
-# Main app logic
-if page == "🏠 Home":
-    show_home()
-elif page == "📊 Data Explorer":
-    show_data_explorer()
-elif page == "🔍 Feature Analysis":
-    show_feature_analysis()
-elif page == "🤖 ML Models":
-    show_ml_models()
-elif page == "📈 Model Comparison":
-    show_model_comparison()
-elif page == "🎯 Predictions":
-    show_predictions()
-elif page == "📋 Reports":
-    show_reports()
+# Additional utility functions
+def create_advanced_visualizations(flood_ml):
+    """Create advanced visualizations for the dashboard"""
+    
+    # PCA visualization
+    st.subheader("🔬 Principal Component Analysis")
+    
+    pca = PCA(n_components=2)
+    X_pca = pca.fit_transform(flood_ml.X_train_scaled)
+    
+    pca_df = pd.DataFrame({
+        'PC1': X_pca[:, 0],
+        'PC2': X_pca[:, 1],
+        'FloodProbability': flood_ml.y_train
+    })
+    
+    fig_pca = px.scatter(
+        pca_df,
+        x='PC1',
+        y='PC2',
+        color='FloodProbability',
+        title='PCA Visualization of Flood Data',
+        labels={'PC1': f'PC1 ({pca.explained_variance_ratio_[0]:.2%} variance)',
+                'PC2': f'PC2 ({pca.explained_variance_ratio_[1]:.2%} variance)'}
+    )
+    st.plotly_chart(fig_pca, use_container_width=True)
+    
+    # Clustering analysis
+    st.subheader("🔍 Clustering Analysis")
+    
+    n_clusters = st.slider("Number of clusters:", 2, 10, 3)
+    
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    clusters = kmeans.fit_predict(flood_ml.X_train_scaled)
+    
+    cluster_df = pd.DataFrame({
+        'PC1': X_pca[:, 0],
+        'PC2': X_pca[:, 1],
+        'Cluster': clusters,
+        'FloodProbability': flood_ml.y_train
+    })
+    
+    fig_cluster = px.scatter(
+        cluster_df,
+        x='PC1',
+        y='PC2',
+        color='Cluster',
+        symbol='FloodProbability',
+        title=f'K-Means Clustering (k={n_clusters})'
+    )
+    st.plotly_chart(fig_cluster, use_container_width=True)
 
-# Footer
-st.markdown("---")
-st.markdown("### 🌊 FloodSentinel - Advanced Flood Risk Assessment System")
-st.markdown("*Developed using state-of-the-art machine learning techniques for disaster management and early warning systems.*")
+if __name__ == "__main__":
+    main()
