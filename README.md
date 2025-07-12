@@ -1,5 +1,10 @@
 # 🌊 FloodSentinel: Complete Flood-Risk Assessment System
 [![Ask DeepWiki](https://devin.ai/assets/askdeepwiki.png)](https://deepwiki.com/Shreyas521032/FloodSentinel-Complete-Flood-Risk-Assessment-System)
+![Streamlit App](https://img.shields.io/badge/Streamlit-Deployed-ff4b4b?logo=streamlit&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
+![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Scikit--learn-orange)
+![Deep Learning](https://img.shields.io/badge/Deep%20Learning-TensorFlow-orange)
+![Multi-Modal](https://img.shields.io/badge/Feature-Multi--Modal%20Analysis-purple)
 
 FloodSentinel is a state-of-the-art flood risk assessment system built with Streamlit. It leverages machine learning and deep learning to analyze numerical data and satellite imagery, providing a comprehensive platform for flood prediction, model evaluation, and risk visualization. The system integrates directly with KaggleHub to fetch datasets automatically.
 
