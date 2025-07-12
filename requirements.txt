@@ -6,8 +6,8 @@ scipy
 scikit-learn
 xgboost
 lightgbm
-tensorflow
-keras
+tensorflow==2.15.0
+keras==2.15.0
 matplotlib
 seaborn
 plotly
