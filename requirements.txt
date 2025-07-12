@@ -13,6 +13,5 @@ plotly
 opencv-python-headless
 kagglehub
 scipy
-numba
 catboost
 shap
