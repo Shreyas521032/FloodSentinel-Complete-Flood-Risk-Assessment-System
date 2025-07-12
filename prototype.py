@@ -34,7 +34,6 @@ import json
 
 warnings.filterwarnings('ignore')
 
-# Page Configuration
 st.set_page_config(
     page_title="FloodSentinel - AI-Powered Flood Risk Assessment",
     page_icon="🌊",
@@ -42,7 +41,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
 st.markdown("""
 <style>
     .main-header {
@@ -90,7 +88,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
 if 'models_trained' not in st.session_state:
     st.session_state.models_trained = False
 if 'dataset_loaded' not in st.session_state:
@@ -98,11 +95,9 @@ if 'dataset_loaded' not in st.session_state:
 if 'model_results' not in st.session_state:
     st.session_state.model_results = {}
 
-# Title and Description
 st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
 
-# Sidebar Navigation
 st.sidebar.markdown("### 🧭 Navigation")
 page = st.sidebar.selectbox(
     "Choose a section:",
@@ -114,15 +109,12 @@ def load_datasets():
     """Load datasets from Kaggle"""
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
-            # Download first dataset
             path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
             st.success(f"✅ Dataset 1 downloaded to: {path1}")
             
-            # Download second dataset
             path2 = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
             st.success(f"✅ Dataset 2 downloaded to: {path2}")
             
-            # Load flood prediction dataset
             flood_files = []
             for root, dirs, files in os.walk(path1):
                 for file in files:
@@ -136,7 +128,6 @@ def load_datasets():
                 st.error("❌ No CSV files found in flood prediction dataset")
                 return None, None
             
-            # Load satellite imagery dataset info
             sat_files = []
             for root, dirs, files in os.walk(path2):
                 for file in files:
@@ -145,7 +136,7 @@ def load_datasets():
             
             st.success(f"✅ Found {len(sat_files)} satellite images")
             
-            return df_flood, sat_files[:100]  # Limit to first 100 images for demo
+            return df_flood, sat_files[:100]  
             
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
@@ -203,7 +194,6 @@ def create_cnn_model(input_shape=(128, 128, 3)):
     
     return model
 
-# Home Page
 if page == "🏠 Home":
     st.markdown("### 🎯 Project Overview")
     
@@ -238,7 +228,6 @@ if page == "🏠 Home":
         </div>
         """, unsafe_allow_html=True)
     
-    # Load datasets
     if st.button("🔄 Load Datasets", type="primary"):
         df_flood, sat_files = load_datasets()
         if df_flood is not None:
@@ -249,7 +238,6 @@ if page == "🏠 Home":
         else:
             st.error("❌ Failed to load datasets")
 
-# Data Analysis Page
 elif page == "📊 Data Analysis":
     st.markdown("### 📊 Exploratory Data Analysis")
     
@@ -259,7 +247,6 @@ elif page == "📊 Data Analysis":
     
     df = st.session_state.df_flood
     
-    # Dataset Overview
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
@@ -294,10 +281,8 @@ elif page == "📊 Data Analysis":
         </div>
         """, unsafe_allow_html=True)
     
-    # Feature Analysis
     st.markdown("#### 📈 Feature Distribution Analysis")
     
-    # Correlation Heatmap
     import plotly.graph_objects as go
 
     corr_matrix = df.corr().round(2)
@@ -322,7 +307,6 @@ elif page == "📊 Data Analysis":
     fig = go.Figure(data=[heatmap], layout=layout)
     st.plotly_chart(fig, use_container_width=True)
     
-    # Target Distribution
     col1, col2 = st.columns(2)
     
     with col1:
@@ -344,10 +328,8 @@ elif page == "📊 Data Analysis":
         )
         st.plotly_chart(fig_box, use_container_width=True)
     
-    # Feature Importance Preview
     st.markdown("#### 🎯 Top Features Analysis")
     
-    # Calculate correlation with target
     correlations = df.corr()['FloodProbability'].abs().sort_values(ascending=False)[1:]
     
     fig_corr_bar = px.bar(
@@ -361,7 +343,6 @@ elif page == "📊 Data Analysis":
     fig_corr_bar.update_layout(height=600)
     st.plotly_chart(fig_corr_bar, use_container_width=True)
 
-# Model Training Page
 elif page == "🤖 Model Training":
     st.markdown("### 🤖 State-of-the-Art Model Training")
     
@@ -371,7 +352,6 @@ elif page == "🤖 Model Training":
     
     df = st.session_state.df_flood
     
-    # Preprocessing Options
     st.markdown("#### ⚙️ Preprocessing Configuration")
     
     col1, col2 = st.columns(2)
@@ -389,7 +369,6 @@ elif page == "🤖 Model Training":
         
         random_state = st.number_input("🎲 Random State:", value=42)
     
-    # Model Selection
     st.markdown("#### 🎯 Model Selection")
     
     models = get_model_algorithms()
@@ -404,16 +383,13 @@ elif page == "🤖 Model Training":
             st.error("❌ Please select at least one model")
             st.stop()
         
-        # Prepare data
         X = df.drop('FloodProbability', axis=1)
         y = df['FloodProbability']
         
-        # Split data
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=test_size, random_state=random_state
         )
         
-        # Scale features
         if scaler_type == "StandardScaler":
             scaler = StandardScaler()
         elif scaler_type == "MinMaxScaler":
@@ -424,7 +400,6 @@ elif page == "🤖 Model Training":
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # Train models
         results = {}
         progress_bar = st.progress(0)
         status_text = st.empty()
@@ -434,21 +409,17 @@ elif page == "🤖 Model Training":
             
             model = models[model_name]
             
-            # Train model
             start_time = time.time()
             model.fit(X_train_scaled, y_train)
             training_time = time.time() - start_time
             
-            # Predictions
             y_pred = model.predict(X_test_scaled)
             
-            # Metrics
             mse = mean_squared_error(y_test, y_pred)
             rmse = np.sqrt(mse)
             mae = mean_absolute_error(y_test, y_pred)
             r2 = r2_score(y_test, y_pred)
             
-            # Cross-validation
             cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring='r2')
             
             results[model_name] = {
@@ -474,7 +445,6 @@ elif page == "🤖 Model Training":
         status_text.text("✅ All models trained successfully!")
         st.success("🎉 Model training completed!")
 
-# Predictions Page
 elif page == "🔮 Predictions":
     st.markdown("### 🔮 Flood Risk Predictions")
     
@@ -482,12 +452,10 @@ elif page == "🔮 Predictions":
         st.warning("⚠️ Please train models first from the Model Training page")
         st.stop()
     
-    # Manual Prediction Input
     st.markdown("#### 📝 Manual Prediction Input")
     
     df = st.session_state.df_flood
     
-    # Create input form
     with st.form("prediction_form"):
         st.markdown("##### 🌦️ Environmental Factors")
         
@@ -522,7 +490,6 @@ elif page == "🔮 Predictions":
         submit_button = st.form_submit_button("🔮 Predict Flood Risk", type="primary")
     
     if submit_button:
-        # Prepare input data
         input_data = np.array([[
             monsoon, topography, river_mgmt, deforestation, urbanization,
             climate_change, dams_quality, siltation, agricultural, encroachments,
@@ -530,10 +497,8 @@ elif page == "🔮 Predictions":
             infrastructure, population, wetland_loss, planning, political
         ]])
         
-        # Scale input
         input_scaled = st.session_state.scaler.transform(input_data)
         
-        # Make predictions with all models
         st.markdown("#### 🎯 Prediction Results")
         
         predictions = {}
@@ -541,11 +506,9 @@ elif page == "🔮 Predictions":
             pred = model_info['Model'].predict(input_scaled)[0]
             predictions[model_name] = pred
         
-        # Display results
         col1, col2 = st.columns(2)
         
         with col1:
-            # Ensemble prediction
             ensemble_pred = np.mean(list(predictions.values()))
             
             if ensemble_pred < 0.3:
@@ -567,7 +530,6 @@ elif page == "🔮 Predictions":
             """, unsafe_allow_html=True)
         
         with col2:
-            # Individual model predictions
             pred_df = pd.DataFrame({
                 'Model': list(predictions.keys()),
                 'Prediction': [f"{p:.2%}" for p in predictions.values()],
@@ -578,7 +540,6 @@ elif page == "🔮 Predictions":
             })
             st.dataframe(pred_df, use_container_width=True)
         
-        # Prediction visualization
         fig_pred = px.bar(
             x=list(predictions.keys()),
             y=list(predictions.values()),
@@ -589,7 +550,6 @@ elif page == "🔮 Predictions":
         fig_pred.update_layout(height=400)
         st.plotly_chart(fig_pred, use_container_width=True)
 
-# Satellite Analysis Page
 elif page == "🛰️ Satellite Analysis":
     st.markdown("### 🛰️ Satellite Imagery Analysis")
     
@@ -599,7 +559,6 @@ elif page == "🛰️ Satellite Analysis":
     
     st.markdown("#### 🖼️ Deep Learning for Satellite Imagery")
     
-    # CNN Model Configuration
     col1, col2 = st.columns(2)
     
     with col1:
@@ -628,10 +587,9 @@ elif page == "🛰️ Satellite Analysis":
         </div>
         """, unsafe_allow_html=True)
     
-    # Display sample satellite images
     st.markdown("#### 📸 Sample Satellite Images")
     
-    sat_files = st.session_state.sat_files[:12]  # Show first 12 images
+    sat_files = st.session_state.sat_files[:12]  
     
     if sat_files:
         cols = st.columns(4)
@@ -646,36 +604,30 @@ elif page == "🛰️ Satellite Analysis":
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     
-    # CNN Training Section
     st.markdown("#### 🚀 CNN Model Training")
     
     if st.button("🔄 Train CNN Model", type="primary"):
         with st.spinner("🔄 Training CNN model..."):
-            # Create and display model architecture
             cnn_model = create_cnn_model()
             
             st.markdown("##### 🏗️ Model Architecture")
             
-            # Display model summary
             model_summary = []
             cnn_model.summary(print_fn=lambda x: model_summary.append(x))
             st.text('\n'.join(model_summary))
             
-            # Simulate training (since we don't have actual image data loaded)
             st.markdown("##### 📈 Training Progress")
             
             epochs = 10
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Simulate training metrics
             train_loss = []
             val_loss = []
             train_acc = []
             val_acc = []
             
             for epoch in range(epochs):
-                # Simulate training
                 tl = 0.8 - (epoch * 0.08) + np.random.normal(0, 0.02)
                 vl = 0.9 - (epoch * 0.07) + np.random.normal(0, 0.03)
                 ta = 0.6 + (epoch * 0.04) + np.random.normal(0, 0.01)
@@ -690,7 +642,6 @@ elif page == "🛰️ Satellite Analysis":
                 progress_bar.progress((epoch + 1) / epochs)
                 time.sleep(0.5)
             
-            # Plot training history
             fig_training = make_subplots(
                 rows=1, cols=2,
                 subplot_titles=('📉 Loss', '📈 Accuracy')
@@ -718,7 +669,6 @@ elif page == "🛰️ Satellite Analysis":
             
             st.success("✅ CNN model training completed!")
             
-            # Final metrics
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
@@ -753,7 +703,6 @@ elif page == "🛰️ Satellite Analysis":
                 </div>
                 """, unsafe_allow_html=True)
 
-# Results Dashboard Page
 elif page == "📈 Results Dashboard":
     st.markdown("### 📈 Comprehensive Results Dashboard")
     
@@ -763,10 +712,8 @@ elif page == "📈 Results Dashboard":
     
     results = st.session_state.model_results
     
-    # Performance Overview
     st.markdown("#### 🏆 Model Performance Overview")
     
-    # Create performance dataframe
     perf_data = []
     for model_name, metrics in results.items():
         perf_data.append({
@@ -782,7 +729,6 @@ elif page == "📈 Results Dashboard":
     perf_df = pd.DataFrame(perf_data)
     perf_df = perf_df.sort_values('R² Score', ascending=False)
     
-    # Top performing models
     st.markdown("##### 🥇 Top Performing Models")
     
     col1, col2, col3 = st.columns(3)
@@ -817,14 +763,11 @@ elif page == "📈 Results Dashboard":
         </div>
         """, unsafe_allow_html=True)
     
-    # Performance table
     st.markdown("##### 📊 Detailed Performance Metrics")
     st.dataframe(perf_df, use_container_width=True)
     
-    # Visualizations
     st.markdown("#### 📊 Performance Visualizations")
     
-    # R² Score comparison
     fig_r2 = px.bar(
         perf_df.sort_values('R² Score'),
         x='R² Score',
@@ -837,7 +780,6 @@ elif page == "📈 Results Dashboard":
     fig_r2.update_layout(height=500)
     st.plotly_chart(fig_r2, use_container_width=True)
     
-    # Multiple metrics comparison
     col1, col2 = st.columns(2)
     
     with col1:
@@ -866,7 +808,6 @@ elif page == "📈 Results Dashboard":
         fig_time.update_layout(height=400)
         st.plotly_chart(fig_time, use_container_width=True)
     
-    # Cross-validation analysis
     st.markdown("#### 🔄 Cross-Validation Analysis")
     
     cv_fig = px.scatter(
@@ -881,10 +822,8 @@ elif page == "📈 Results Dashboard":
     cv_fig.update_layout(height=400)
     st.plotly_chart(cv_fig, use_container_width=True)
     
-    # Prediction vs Actual scatter plots
     st.markdown("#### 🔍 Prediction Analysis")
     
-    # Select model for detailed analysis
     selected_model = st.selectbox(
         "Choose model for detailed analysis:",
         list(results.keys()),
@@ -899,7 +838,6 @@ elif page == "📈 Results Dashboard":
         col1, col2 = st.columns(2)
         
         with col1:
-            # Scatter plot of predictions vs actual
             fig_scatter = px.scatter(
                 x=y_test,
                 y=y_pred,
@@ -909,7 +847,6 @@ elif page == "📈 Results Dashboard":
                 color_continuous_scale='RdYlGn_r'
             )
             
-            # Add perfect prediction line
             min_val = min(y_test.min(), y_pred.min())
             max_val = max(y_test.max(), y_pred.max())
             fig_scatter.add_trace(
@@ -925,7 +862,6 @@ elif page == "📈 Results Dashboard":
             st.plotly_chart(fig_scatter, use_container_width=True)
         
         with col2:
-            # Residuals plot
             residuals = y_test - y_pred
             fig_residuals = px.scatter(
                 x=y_pred,
@@ -936,15 +872,12 @@ elif page == "📈 Results Dashboard":
                 color_continuous_scale='Reds'
             )
             
-            # Add zero line
             fig_residuals.add_hline(y=0, line_dash="dash", line_color="red")
             
             st.plotly_chart(fig_residuals, use_container_width=True)
     
-    # Feature Importance Analysis
     st.markdown("#### 🎯 Feature Importance Analysis")
     
-    # Get feature importance for tree-based models
     tree_models = ['🌳 Random Forest', '🚀 XGBoost', '💡 LightGBM', '🎯 CatBoost', '⚡ Gradient Boosting']
     available_tree_models = [m for m in tree_models if m in results]
     
@@ -956,18 +889,16 @@ elif page == "📈 Results Dashboard":
         
         if importance_model:
             model = results[importance_model]['Model']
-            feature_names = st.session_state.df_flood.columns[:-1]  # Exclude target
+            feature_names = st.session_state.df_flood.columns[:-1]  
             
             if hasattr(model, 'feature_importances_'):
                 importances = model.feature_importances_
                 
-                # Create feature importance dataframe
                 importance_df = pd.DataFrame({
                     'Feature': feature_names,
                     'Importance': importances
                 }).sort_values('Importance', ascending=False)
                 
-                # Plot feature importance
                 fig_importance = px.bar(
                     importance_df.head(15),
                     x='Importance',
@@ -980,14 +911,11 @@ elif page == "📈 Results Dashboard":
                 fig_importance.update_layout(height=600)
                 st.plotly_chart(fig_importance, use_container_width=True)
                 
-                # Show top features
                 st.markdown("##### 🏆 Top 10 Most Important Features")
                 st.dataframe(importance_df.head(10), use_container_width=True)
     
-    # Model Comparison Radar Chart
     st.markdown("#### 🕸️ Multi-Metric Model Comparison")
     
-    # Normalize metrics for radar chart
     metrics_for_radar = ['R² Score', 'CV Mean']
     radar_data = []
     
@@ -1003,7 +931,6 @@ elif page == "📈 Results Dashboard":
     
     radar_df = pd.DataFrame(radar_data)
     
-    # Create radar chart for top 5 models
     top_models = radar_df.nlargest(5, 'R² Score')
     
     fig_radar = go.Figure()
@@ -1027,11 +954,9 @@ elif page == "📈 Results Dashboard":
     
     st.plotly_chart(fig_radar, use_container_width=True)
     
-    # Export Results
     st.markdown("#### 💾 Export Results")
     
     if st.button("📥 Download Results", type="secondary"):
-        # Create downloadable results
         results_json = {}
         for model_name, metrics in results.items():
             results_json[model_name] = {
@@ -1051,7 +976,6 @@ elif page == "📈 Results Dashboard":
             mime="application/json"
         )
         
-        # CSV export
         st.download_button(
             label="📈 Download Performance Table (CSV)",
             data=perf_df.to_csv(index=False),
@@ -1059,7 +983,6 @@ elif page == "📈 Results Dashboard":
             mime="text/csv"
         )
 
-# Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; padding: 2rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 10px; margin-top: 2rem;">
@@ -1069,7 +992,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar Information
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📊 Current Status")
 
