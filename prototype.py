@@ -136,7 +136,7 @@ def load_datasets():
             
             st.success(f"✅ Found {len(sat_files)} satellite images")
             
-            return df_flood, sat_files[:100]  
+            return df_flood, sat_files
             
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
