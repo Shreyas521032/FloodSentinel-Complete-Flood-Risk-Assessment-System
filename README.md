@@ -1,5 +1,5 @@
 # 🌊 FloodSentinel: Complete Flood-Risk Assessment System
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.9%2B-blue?logo=python&logoColor=white)
 ![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Scikit--learn-orange)
 ![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20-lightgrey)
 ![Multi-Modal](https://img.shields.io/badge/Feature-Multi--Modal%20Analysis-purple)
