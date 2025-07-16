@@ -344,7 +344,7 @@ elif page == "📊 Data Analysis":
     st.plotly_chart(fig_corr_bar, use_container_width=True)
 
 elif page == "⚙️ Model Training":
-    st.markdown("### 🤖 State-of-the-Art Model Training")
+    st.markdown("### ⚙️ State-of-the-Art Model Training")
     
     if not st.session_state.dataset_loaded:
         st.warning("⚠️ Please load datasets first from the Home page")
@@ -1016,7 +1016,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ About")
 st.sidebar.info("""
 🌊 **FloodSentinel** combines:
-- 🤖 12 state-of-the-art ML algorithms
+- ⚙️ 12 state-of-the-art ML algorithms
 - 🛰️ Deep learning for satellite imagery
 - 📊 Real-time risk assessment
 - 🎯 Interactive visualizations
