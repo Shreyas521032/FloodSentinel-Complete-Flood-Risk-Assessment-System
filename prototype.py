@@ -101,7 +101,7 @@ st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-P
 st.sidebar.markdown("### 🧭 Navigation")
 page = st.sidebar.selectbox(
     "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "🤖 Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
 
 @st.cache_data
@@ -343,7 +343,7 @@ elif page == "📊 Data Analysis":
     fig_corr_bar.update_layout(height=600)
     st.plotly_chart(fig_corr_bar, use_container_width=True)
 
-elif page == "🤖 Model Training":
+elif page == "⚙️ Model Training":
     st.markdown("### 🤖 State-of-the-Art Model Training")
     
     if not st.session_state.dataset_loaded:
