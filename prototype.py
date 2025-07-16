@@ -101,7 +101,7 @@ st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-P
 st.sidebar.markdown("### 🧭 Navigation")
 page = st.sidebar.selectbox(
     "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
+    ["🏠 Home", "📊 Data Analysis", "🤖 Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
 
 @st.cache_data
