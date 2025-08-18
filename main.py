@@ -4,9 +4,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
 from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.svm import SVR
@@ -16,13 +14,9 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import warnings
-import os
 import time
-import json
-from datetime import datetime
 import base64
 from io import BytesIO
-import matplotlib.pyplot as plt
 from PIL import Image
 
 warnings.filterwarnings('ignore')
@@ -267,6 +261,20 @@ def init_session_state():
         st.session_state.model_results = {}
     if 'sample_data' not in st.session_state:
         st.session_state.sample_data = None
+    if 'df_flood' not in st.session_state:
+        st.session_state.df_flood = None
+    if 'sample_images' not in st.session_state:
+        st.session_state.sample_images = None
+    if 'X_test' not in st.session_state:
+        st.session_state.X_test = None
+    if 'y_test' not in st.session_state:
+        st.session_state.y_test = None
+    if 'X_train' not in st.session_state:
+        st.session_state.X_train = None
+    if 'y_train' not in st.session_state:
+        st.session_state.y_train = None
+    if 'scaler' not in st.session_state:
+        st.session_state.scaler = None
 
 init_session_state()
 
@@ -332,6 +340,7 @@ def generate_sample_flood_data(n_samples=1000):
     df = pd.DataFrame(data)
     return df
 
+@st.cache_resource
 def get_model_algorithms():
     """Get enhanced model algorithms with better parameters"""
     return {
@@ -397,6 +406,7 @@ def create_alert_card(message, alert_type="info"):
     """Create enhanced alert cards"""
     return f'<div class="{alert_type}-card">{message}</div>'
 
+@st.cache_data
 def generate_sample_satellite_images(num_images=12):
     """Generate sample satellite-like images for demonstration"""
     images = []
@@ -424,7 +434,7 @@ def generate_sample_satellite_images(num_images=12):
         
         # Convert to uint8
         img = (img * 255).astype(np.uint8)
-        images.append(img)
+        images.append(Image.fromarray(img))
     
     return images
 
@@ -478,6 +488,13 @@ if page == "🏠 Dashboard":
                 st.session_state.df_flood = df_sample
                 st.session_state.sample_images = sample_images
                 st.session_state.dataset_loaded = True
+                st.session_state.models_trained = False # Reset trained models on new data load
+                st.session_state.model_results = {}
+                st.session_state.X_test = None
+                st.session_state.y_test = None
+                st.session_state.X_train = None
+                st.session_state.y_train = None
+                st.session_state.scaler = None
                 
             st.balloons()
             st.success("✅ Sample dataset loaded successfully!")
@@ -507,7 +524,7 @@ if page == "🏠 Dashboard":
 elif page == "📊 Data Analysis":
     st.markdown('<div class="section-header">📊 Exploratory Data Analysis</div>', unsafe_allow_html=True)
     
-    if not st.session_state.dataset_loaded:
+    if not st.session_state.dataset_loaded or st.session_state.df_flood is None:
         st.markdown(create_alert_card("""
             ⚠️ <strong>Dataset Required</strong><br>
             Please load the sample dataset first from the Dashboard page to begin analysis.
@@ -541,9 +558,9 @@ elif page == "📊 Data Analysis":
     st.markdown("#### 🔥 Feature Correlation Matrix")
     
     # Select top features for better visualization
-    correlations = df.corr()['FloodProbability'].abs().sort_values(ascending=False)[1:11]
+    correlations = df.corr(numeric_only=True)['FloodProbability'].abs().sort_values(ascending=False)[1:11]
     top_features = correlations.index.tolist() + ['FloodProbability']
-    corr_matrix = df[top_features].corr()
+    corr_matrix = df[top_features].corr(numeric_only=True)
     
     fig_heatmap = px.imshow(
         corr_matrix,
@@ -576,7 +593,8 @@ elif page == "📊 Data Analysis":
         df_risk['Risk_Category'] = pd.cut(
             df_risk['FloodProbability'],
             bins=[0, 0.3, 0.6, 1.0],
-            labels=['🟢 Low', '🟡 Medium', '🔴 High']
+            labels=['🟢 Low', '🟡 Medium', '🔴 High'],
+            right=False # Include 0.0 in Low category
         )
         
         risk_counts = df_risk['Risk_Category'].value_counts()
@@ -592,7 +610,7 @@ elif page == "📊 Data Analysis":
     # Feature importance visualization
     st.markdown("#### 🔍 Feature Impact Analysis")
     
-    correlations = df.corr()['FloodProbability'].abs().sort_values(ascending=False)[1:]
+    correlations = df.corr(numeric_only=True)['FloodProbability'].abs().sort_values(ascending=False)[1:]
     
     fig_corr_bar = px.bar(
         x=correlations.values,
@@ -615,7 +633,7 @@ elif page == "📊 Data Analysis":
 elif page == "⚙️ Model Training":
     st.markdown('<div class="section-header">⚙️ Advanced Model Training</div>', unsafe_allow_html=True)
     
-    if not st.session_state.dataset_loaded:
+    if not st.session_state.dataset_loaded or st.session_state.df_flood is None:
         st.markdown(create_alert_card("""
             ⚠️ <strong>Dataset Required</strong><br>
             Please load the sample dataset first from the Dashboard page to begin training.
@@ -657,15 +675,17 @@ elif page == "⚙️ Model Training":
             )
         
         with col3:
+            # Hyperparameter tuning is a complex feature, might be better to simplify or offer as advanced option
+            # For now, keeping it as a checkbox but not implementing full GridSearchCV for all models
             enable_hyperparameter_tuning = st.checkbox(
-                "🔧 Hyperparameter Tuning",
-                help="Enable automated hyperparameter optimization (slower but better results)"
+                "🔧 Hyperparameter Tuning (Advanced)",
+                help="Enable automated hyperparameter optimization (slower but potentially better results). Not fully implemented for all models."
             )
             
             parallel_training = st.checkbox(
                 "⚡ Parallel Training",
                 value=True,
-                help="Use parallel processing for faster training"
+                help="Use parallel processing for faster training (Note: Streamlit's nature might limit true parallelism for some operations)"
             )
     
         # Model selection with enhanced interface
@@ -702,8 +722,11 @@ elif page == "⚙️ Model Training":
         X = df.drop('FloodProbability', axis=1)
         y = df['FloodProbability']
         
+        # Stratify only if y is not continuous (e.g., binned for classification)
+        # For regression, stratify is not typically used directly on continuous target.
+        # Removing stratify for continuous target variable.
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state, stratify=pd.cut(y, bins=3)
+            X, y, test_size=test_size, random_state=random_state
         )
         
         # Scaling
@@ -734,6 +757,17 @@ elif page == "⚙️ Model Training":
             start_time = time.time()
             
             try:
+                # Hyperparameter tuning (simplified example for one model type)
+                if enable_hyperparameter_tuning and model_name == "🌳 Random Forest":
+                    param_grid = {
+                        'n_estimators': [50, 100, 200],
+                        'max_depth': [5, 10, 15, None]
+                    }
+                    grid_search = GridSearchCV(model, param_grid, cv=cv_folds, scoring='r2', n_jobs=-1)
+                    grid_search.fit(X_train_scaled, y_train)
+                    model = grid_search.best_estimator_
+                    st.info(f"Best params for Random Forest: {grid_search.best_params_}")
+
                 model.fit(X_train_scaled, y_train)
                 training_time = time.time() - start_time
                 
@@ -751,7 +785,7 @@ elif page == "⚙️ Model Training":
                 train_r2 = r2_score(y_train, y_train_pred)
                 
                 # Cross-validation
-                cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring='r2')
+                cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring='r2', n_jobs=-1 if parallel_training else 1)
                 
                 # Overfitting detection
                 overfitting_score = train_r2 - test_r2
@@ -805,43 +839,47 @@ elif page == "⚙️ Model Training":
             st.markdown("#### 🏆 Training Results Preview")
             
             # Best model highlight
-            best_model = max(results.keys(), key=lambda k: results[k]['Test_R²'])
-            
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.markdown(f"""
-                <div class="success-card">
-                    <h4>🥇 Best Model</h4>
-                    <h3>{best_model}</h3>
-                    <p>R² Score: {results[best_model]['Test_R²']:.4f}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                fastest_model = min(results.keys(), key=lambda k: results[k]['Training_Time'])
-                st.markdown(f"""
-                <div class="info-card">
-                    <h4>⚡ Fastest Training</h4>
-                    <h3>{fastest_model}</h3>
-                    <p>Time: {results[fastest_model]['Training_Time']:.2f}s</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                total_time = sum(r['Training_Time'] for r in results.values())
-                st.markdown(f"""
-                <div class="warning-card">
-                    <h4>⏱️ Total Training Time</h4>
-                    <h3>{total_time:.2f}s</h3>
-                    <p>{len(results)} models trained</p>
-                </div>
-                """, unsafe_allow_html=True)
+            # Ensure there's at least one successful model training result
+            if results:
+                best_model = max(results.keys(), key=lambda k: results[k]['Test_R²'])
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.markdown(f"""
+                    <div class="success-card">
+                        <h4>🥇 Best Model</h4>
+                        <h3>{best_model}</h3>
+                        <p>R² Score: {results[best_model]['Test_R²']:.4f}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col2:
+                    fastest_model = min(results.keys(), key=lambda k: results[k]['Training_Time'])
+                    st.markdown(f"""
+                    <div class="info-card">
+                        <h4>⚡ Fastest Training</h4>
+                        <h3>{fastest_model}</h3>
+                        <p>Time: {results[fastest_model]['Training_Time']:.2f}s</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                with col3:
+                    total_time = sum(r['Training_Time'] for r in results.values())
+                    st.markdown(f"""
+                    <div class="warning-card">
+                        <h4>⏱️ Total Training Time</h4>
+                        <h3>{total_time:.2f}s</h3>
+                        <p>{len(results)} models trained</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.warning("No models were successfully trained to display results.")
 
 elif page == "🔮 Risk Prediction":
     st.markdown('<div class="section-header">🔮 Intelligent Flood Risk Prediction</div>', unsafe_allow_html=True)
     
-    if not st.session_state.models_trained:
+    if not st.session_state.models_trained or not st.session_state.model_results:
         st.markdown(create_alert_card("""
             ⚠️ <strong>Models Required</strong><br>
             Please train models first from the Model Training page to make predictions.
@@ -851,6 +889,19 @@ elif page == "🔮 Risk Prediction":
     # Enhanced prediction interface
     st.markdown("#### 🎛️ Environmental Parameter Input")
     
+    # Define feature names in the correct order as expected by the model
+    prediction_feature_names = [
+        'monsoon_intensity', 'topography_drainage', 'river_management',
+        'deforestation', 'urbanization', 'climate_change', 'dams_quality',
+        'siltation', 'agricultural_practices', 'encroachments',
+        'disaster_preparedness', 'drainage_systems', 'coastal_vulnerability',
+        'landslides', 'watersheds', 'infrastructure_quality',
+        'population_density', 'wetland_loss', 'planning_adequacy',
+        'political_factors'
+    ]
+
+    input_values_dict = {}
+
     col1, col2 = st.columns([2, 1])
     
     with col1:
@@ -860,61 +911,61 @@ elif page == "🔮 Risk Prediction":
             climate_col1, climate_col2 = st.columns(2)
             
             with climate_col1:
-                monsoon = st.slider("🌧️ Monsoon Intensity", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['monsoon_intensity'] = st.slider("🌧️ Monsoon Intensity", 0.0, 1.0, 0.5, 0.01,
                                    help="Intensity of monsoon season (0=low, 1=extreme)")
-                climate_change = st.slider("🌡️ Climate Change Impact", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['climate_change'] = st.slider("🌡️ Climate Change Impact", 0.0, 1.0, 0.5, 0.01,
                                          help="Local impact of climate change")
-                coastal_vuln = st.slider("🌊 Coastal Vulnerability", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['coastal_vulnerability'] = st.slider("🌊 Coastal Vulnerability", 0.0, 1.0, 0.5, 0.01,
                                         help="Vulnerability to coastal flooding")
             
             with climate_col2:
-                topography = st.slider("⛰️ Topography Drainage", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['topography_drainage'] = st.slider("⛰️ Topography Drainage", 0.0, 1.0, 0.5, 0.01,
                                      help="Natural drainage capacity of terrain")
-                landslides = st.slider("⛰️ Landslide Risk", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['landslides'] = st.slider("⛰️ Landslide Risk", 0.0, 1.0, 0.5, 0.01,
                                      help="Risk of landslides affecting drainage")
-                watersheds = st.slider("💧 Watershed Condition", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['watersheds'] = st.slider("💧 Watershed Condition", 0.0, 1.0, 0.5, 0.01,
                                      help="Health and capacity of watersheds")
             
             st.markdown("##### 🏗️ Infrastructure & Development")
             infra_col1, infra_col2 = st.columns(2)
             
             with infra_col1:
-                urbanization = st.slider("🏙️ Urbanization Level", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['urbanization'] = st.slider("🏙️ Urbanization Level", 0.0, 1.0, 0.5, 0.01,
                                        help="Degree of urban development")
-                infrastructure = st.slider("🏗️ Infrastructure Quality", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['infrastructure_quality'] = st.slider("🏗️ Infrastructure Quality", 0.0, 1.0, 0.5, 0.01,
                                          help="Quality of flood-resistant infrastructure")
-                drainage = st.slider("🚰 Drainage Systems", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['drainage_systems'] = st.slider("🚰 Drainage Systems", 0.0, 1.0, 0.5, 0.01,
                                     help="Effectiveness of urban drainage")
-                dams_quality = st.slider("🏗️ Dam Quality", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['dams_quality'] = st.slider("🏗️ Dam Quality", 0.0, 1.0, 0.5, 0.01,
                                        help="Quality and maintenance of dams")
             
             with infra_col2:
-                river_mgmt = st.slider("🏞️ River Management", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['river_management'] = st.slider("🏞️ River Management", 0.0, 1.0, 0.5, 0.01,
                                      help="Effectiveness of river management")
-                encroachments = st.slider("🏘️ Encroachments", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['encroachments'] = st.slider("🏘️ Encroachments", 0.0, 1.0, 0.5, 0.01,
                                         help="Illegal constructions in flood plains")
-                population = st.slider("👥 Population Density", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['population_density'] = st.slider("👥 Population Density", 0.0, 1.0, 0.5, 0.01,
                                      help="Population density in at-risk areas")
-                planning = st.slider("📋 Urban Planning", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['planning_adequacy'] = st.slider("📋 Urban Planning", 0.0, 1.0, 0.5, 0.01,
                                    help="Quality of urban planning")
             
             st.markdown("##### 🌿 Environmental Factors")
             env_col1, env_col2 = st.columns(2)
             
             with env_col1:
-                deforestation = st.slider("🌳 Deforestation Level", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['deforestation'] = st.slider("🌳 Deforestation Level", 0.0, 1.0, 0.5, 0.01,
                                         help="Rate of deforestation in catchment area")
-                wetland_loss = st.slider("🦆 Wetland Loss", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['wetland_loss'] = st.slider("🦆 Wetland Loss", 0.0, 1.0, 0.5, 0.01,
                                        help="Loss of natural wetlands")
-                agricultural = st.slider("🌾 Agricultural Impact", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['agricultural_practices'] = st.slider("🌾 Agricultural Impact", 0.0, 1.0, 0.5, 0.01,
                                        help="Impact of agricultural practices on drainage")
             
             with env_col2:
-                siltation = st.slider("🪨 Siltation Level", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['siltation'] = st.slider("🪨 Siltation Level", 0.0, 1.0, 0.5, 0.01,
                                     help="Sediment buildup in water bodies")
-                disaster_prep = st.slider("🚨 Disaster Preparedness", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['disaster_preparedness'] = st.slider("🚨 Disaster Preparedness", 0.0, 1.0, 0.5, 0.01,
                                         help="Community disaster preparedness level")
-                political = st.slider("🏛️ Policy Effectiveness", 0.0, 1.0, 0.5, 0.01,
+                input_values_dict['political_factors'] = st.slider("🏛️ Policy Effectiveness", 0.0, 1.0, 0.5, 0.01,
                                      help="Effectiveness of flood management policies")
             
             # Prediction buttons
@@ -931,21 +982,34 @@ elif page == "🔮 Risk Prediction":
         st.markdown("##### ⚡ Quick Presets")
         
         if st.button("🟢 Low Risk Scenario", use_container_width=True):
-            # Set low risk values
+            st.session_state.input_preset = "low"
             st.rerun()
         
         if st.button("🟡 Medium Risk Scenario", use_container_width=True):
-            # Set medium risk values
+            st.session_state.input_preset = "medium"
             st.rerun()
         
         if st.button("🔴 High Risk Scenario", use_container_width=True):
-            # Set high risk values
+            st.session_state.input_preset = "high"
             st.rerun()
         
         if st.button("🔄 Random Values", use_container_width=True):
-            # Set random values
+            st.session_state.input_preset = "random"
             st.rerun()
         
+        # Apply preset values if set
+        if 'input_preset' in st.session_state and st.session_state.input_preset:
+            if st.session_state.input_preset == "low":
+                for key in input_values_dict: input_values_dict[key] = 0.2
+            elif st.session_state.input_preset == "medium":
+                for key in input_values_dict: input_values_dict[key] = 0.5
+            elif st.session_state.input_preset == "high":
+                for key in input_values_dict: input_values_dict[key] = 0.8
+            elif st.session_state.input_preset == "random":
+                for key in input_values_dict: input_values_dict[key] = np.random.uniform(0.0, 1.0)
+            st.session_state.input_preset = None # Clear preset after applying
+            st.rerun() # Rerun to update slider values
+
         # Risk level explanation
         st.markdown(create_alert_card("""
             <h4>📊 Risk Levels</h4>
@@ -961,12 +1025,9 @@ elif page == "🔮 Risk Prediction":
     
     # Enhanced prediction results
     if predict_single:
-        input_data = np.array([[
-            monsoon, topography, river_mgmt, deforestation, urbanization,
-            climate_change, dams_quality, siltation, agricultural, encroachments,
-            disaster_prep, drainage, coastal_vuln, landslides, watersheds,
-            infrastructure, population, wetland_loss, planning, political
-        ]])
+        # Ensure input_data is in the correct order for the scaler and models
+        input_data_ordered = [input_values_dict[feature] for feature in prediction_feature_names]
+        input_data = np.array([input_data_ordered])
         
         input_scaled = st.session_state.scaler.transform(input_data)
         
@@ -977,17 +1038,39 @@ elif page == "🔮 Risk Prediction":
         confidence_scores = {}
         
         for model_name, model_info in st.session_state.model_results.items():
-            pred = model_info['Model'].predict(input_scaled)[0]
-            predictions[model_name] = pred
-            
-            # Calculate confidence based on model performance
-            confidence = model_info['Test_R²'] * (1 - model_info['CV_Std'])
-            confidence_scores[model_name] = confidence
+            try:
+                pred = model_info['Model'].predict(input_scaled)[0]
+                predictions[model_name] = pred
+                
+                # Calculate confidence based on model performance
+                # Ensure CV_Std is not NaN or inf, and R^2 is not negative
+                cv_std = model_info['CV_Std'] if not np.isnan(model_info['CV_Std']) else 0
+                test_r2 = model_info['Test_R²'] if model_info['Test_R²'] > 0 else 0
+                confidence = test_r2 * (1 - cv_std)
+                confidence_scores[model_name] = confidence
+            except Exception as e:
+                st.warning(f"Could not get prediction for {model_name}: {e}")
+                continue
         
+        if not predictions:
+            st.error("No models were able to make a prediction. Please check model training results.")
+            st.stop()
+
         # Ensemble prediction with weighted average
-        weights = np.array(list(confidence_scores.values()))
+        # Filter out models that failed to predict
+        valid_predictions = {k: v for k, v in predictions.items() if k in confidence_scores}
+        valid_confidence_scores = {k: v for k, v in confidence_scores.items() if k in valid_predictions}
+
+        if not valid_predictions:
+            st.error("No valid predictions could be generated. Please ensure models are trained correctly.")
+            st.stop()
+
+        weights = np.array(list(valid_confidence_scores.values()))
+        if weights.sum() == 0:
+            # If all weights are zero (e.g., all R^2 were 0 or negative), use equal weights
+            weights = np.ones(len(valid_predictions))
         weights = weights / weights.sum()  # Normalize
-        ensemble_pred = np.average(list(predictions.values()), weights=weights)
+        ensemble_pred = np.average(list(valid_predictions.values()), weights=weights)
         
         # Enhanced results display
         col1, col2 = st.columns([1, 2])
@@ -1016,24 +1099,24 @@ elif page == "🔮 Risk Prediction":
             """, unsafe_allow_html=True)
             
             # Confidence metrics
-            avg_confidence = np.mean(list(confidence_scores.values()))
-            prediction_std = np.std(list(predictions.values()))
+            avg_confidence = np.mean(list(valid_confidence_scores.values()))
+            prediction_std = np.std(list(valid_predictions.values()))
             
             st.markdown(f"""
             <div class="info-card">
                 <h4>📊 Prediction Quality</h4>
                 <p>Confidence: {avg_confidence:.1%}</p>
                 <p>Model Agreement: {(1-prediction_std):.1%}</p>
-                <p>Models Used: {len(predictions)}</p>
+                <p>Models Used: {len(valid_predictions)}</p>
             </div>
             """, unsafe_allow_html=True)
         
         with col2:
             # Model comparison chart
             pred_df = pd.DataFrame({
-                'Model': list(predictions.keys()),
-                'Prediction': list(predictions.values()),
-                'Confidence': list(confidence_scores.values())
+                'Model': list(valid_predictions.keys()),
+                'Prediction': list(valid_predictions.values()),
+                'Confidence': list(valid_confidence_scores.values())
             })
             
             fig_pred = px.bar(
@@ -1060,27 +1143,22 @@ elif page == "🔮 Risk Prediction":
         st.markdown("#### 🔍 Detailed Risk Analysis")
         
         # Feature impact analysis
-        feature_names = [
-            'Monsoon Intensity', 'Topography Drainage', 'River Management',
-            'Deforestation', 'Urbanization', 'Climate Change', 'Dam Quality',
-            'Siltation', 'Agricultural Practices', 'Encroachments',
-            'Disaster Preparedness', 'Drainage Systems', 'Coastal Vulnerability',
-            'Landslides', 'Watersheds', 'Infrastructure Quality',
-            'Population Density', 'Wetland Loss', 'Urban Planning',
-            'Policy Effectiveness'
-        ]
+        # Use the actual feature names from the DataFrame columns for consistency
+        feature_names_df = st.session_state.df_flood.drop('FloodProbability', axis=1).columns.tolist()
         
-        input_values = input_data[0]
+        input_values_list = [input_values_dict[f] for f in feature_names_df] # Ensure order matches df
         
         # Calculate feature contributions (simplified)
         feature_impact = []
-        for i, (name, value) in enumerate(zip(feature_names, input_values)):
-            # Estimate impact based on correlation with target
-            if hasattr(st.session_state, 'df_flood'):
-                corr = st.session_state.df_flood.corr()['FloodProbability'].iloc[i]
-                impact = value * abs(corr) * ensemble_pred
-            else:
-                impact = value * 0.5 * ensemble_pred  # Fallback
+        if hasattr(st.session_state, 'df_flood') and st.session_state.df_flood is not None:
+            # Calculate correlations only once and store if needed
+            full_correlations = st.session_state.df_flood.corr(numeric_only=True)['FloodProbability']
+        else:
+            full_correlations = pd.Series(np.zeros(len(feature_names_df)), index=feature_names_df)
+
+        for i, (name, value) in enumerate(zip(feature_names_df, input_values_list)):
+            corr = full_correlations.get(name, 0) # Use .get to handle cases where feature might not be in correlation matrix
+            impact = value * abs(corr) * ensemble_pred
             feature_impact.append({'Feature': name, 'Value': value, 'Impact': impact})
         
         impact_df = pd.DataFrame(feature_impact).sort_values('Impact', ascending=False)
@@ -1103,12 +1181,12 @@ elif page == "🔮 Risk Prediction":
         
         with col2:
             # Feature values radar chart
-            top_features = impact_df.head(6)
+            top_features_radar = impact_df.head(6) # Use a subset for readability
             
             fig_radar = go.Figure()
             fig_radar.add_trace(go.Scatterpolar(
-                r=top_features['Value'].values,
-                theta=top_features['Feature'].values,
+                r=top_features_radar['Value'].values,
+                theta=top_features_radar['Feature'].values,
                 fill='toself',
                 name='Current Values'
             ))
@@ -1124,11 +1202,9 @@ elif page == "🔮 Risk Prediction":
     if predict_scenarios:
         st.markdown("#### 📊 Scenario Analysis")
         
+        # Define scenarios using the prediction_feature_names for consistency
         scenarios = {
-            "Current": [monsoon, topography, river_mgmt, deforestation, urbanization,
-                       climate_change, dams_quality, siltation, agricultural, encroachments,
-                       disaster_prep, drainage, coastal_vuln, landslides, watersheds,
-                       infrastructure, population, wetland_loss, planning, political],
+            "Current": [input_values_dict[f] for f in prediction_feature_names],
             "Best Case": [0.2, 0.9, 0.9, 0.1, 0.3, 0.2, 0.9, 0.1, 0.8, 0.1,
                          0.9, 0.9, 0.2, 0.1, 0.9, 0.9, 0.3, 0.1, 0.9, 0.9],
             "Worst Case": [0.9, 0.1, 0.1, 0.9, 0.9, 0.9, 0.1, 0.9, 0.2, 0.9,
@@ -1136,29 +1212,53 @@ elif page == "🔮 Risk Prediction":
             "Climate Change +20%": None  # Will be calculated
         }
         
-        # Calculate climate change scenario
-        climate_change_scenario = scenarios["Current"].copy()
-        climate_change_scenario[0] *= 1.2  # Monsoon +20%
-        climate_change_scenario[5] *= 1.2  # Climate change +20%
-        climate_change_scenario[12] *= 1.2  # Coastal vulnerability +20%
-        scenarios["Climate Change +20%"] = [min(1.0, x) for x in climate_change_scenario]
-        
+        # Calculate climate change scenario based on current inputs
+        climate_change_scenario_values = scenarios["Current"].copy()
+        # Assuming indices for 'monsoon_intensity', 'climate_change', 'coastal_vulnerability'
+        # These indices need to be carefully mapped to prediction_feature_names
+        # For robustness, it's better to use feature names directly if possible, or ensure consistent ordering.
+        # For now, relying on the original order from the provided code.
+        try:
+            idx_monsoon = prediction_feature_names.index('monsoon_intensity')
+            idx_climate_change = prediction_feature_names.index('climate_change')
+            idx_coastal_vuln = prediction_feature_names.index('coastal_vulnerability')
+
+            climate_change_scenario_values[idx_monsoon] = min(1.0, climate_change_scenario_values[idx_monsoon] * 1.2)
+            climate_change_scenario_values[idx_climate_change] = min(1.0, climate_change_scenario_values[idx_climate_change] * 1.2)
+            climate_change_scenario_values[idx_coastal_vuln] = min(1.0, climate_change_scenario_values[idx_coastal_vuln] * 1.2)
+            scenarios["Climate Change +20%"] = climate_change_scenario_values
+        except ValueError as e:
+            st.error(f"Error in scenario calculation: {e}. Feature not found in list.")
+            scenarios.pop("Climate Change +20%", None) # Remove problematic scenario
+
         scenario_results = {}
         
         for scenario_name, values in scenarios.items():
             if values is None:
                 continue
             
-            input_scaled = st.session_state.scaler.transform([values])
-            
-            # Get ensemble prediction
-            preds = []
-            for model_name, model_info in st.session_state.model_results.items():
-                pred = model_info['Model'].predict(input_scaled)[0]
-                preds.append(pred)
-            
-            scenario_results[scenario_name] = np.mean(preds)
+            try:
+                input_scaled = st.session_state.scaler.transform([values])
+                
+                # Get ensemble prediction
+                preds = []
+                for model_name, model_info in st.session_state.model_results.items():
+                    if 'Model' in model_info:
+                        pred = model_info['Model'].predict(input_scaled)[0]
+                        preds.append(pred)
+                
+                if preds:
+                    scenario_results[scenario_name] = np.mean(preds)
+                else:
+                    st.warning(f"No valid model predictions for scenario: {scenario_name}")
+            except Exception as e:
+                st.error(f"Error predicting for scenario {scenario_name}: {e}")
+                continue
         
+        if not scenario_results:
+            st.error("No scenario results could be generated.")
+            st.stop()
+
         # Display scenario comparison
         scenario_df = pd.DataFrame({
             'Scenario': list(scenario_results.keys()),
@@ -1198,209 +1298,153 @@ elif page == "🔮 Risk Prediction":
             
             st.markdown(f"""
             <div class="warning-card">
-                <h4>⚠️ Risk Range</h4>
+                <h4>⚠️ Risk Spread</h4>
                 <h3>{risk_spread:.1%}</h3>
-                <p>Difference between best and worst case scenarios</p>
+                <p>Difference between worst and best case scenarios</p>
             </div>
             """, unsafe_allow_html=True)
 
 elif page == "🛰️ Satellite Analysis":
-    st.markdown('<div class="section-header">🛰️ Advanced Satellite Imagery Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🛰️ Satellite Imagery Analysis</div>', unsafe_allow_html=True)
     
-    if not st.session_state.dataset_loaded:
+    if not st.session_state.dataset_loaded or st.session_state.sample_images is None:
         st.markdown(create_alert_card("""
-            ⚠️ <strong>Dataset Required</strong><br>
-            Please load the sample dataset first from the Dashboard page to begin analysis.
+            ⚠️ <strong>Sample Images Required</strong><br>
+            Please load the sample dataset from the Dashboard page to view satellite images.
         """, "warning"), unsafe_allow_html=True)
         st.stop()
     
-    # Enhanced CNN architecture info
+    st.markdown("#### 🖼️ Sample Satellite Images")
+    st.write("These are simulated satellite images representing different environmental conditions.")
+    
+    # Display images in a gallery format
+    num_images = len(st.session_state.sample_images)
+    cols = st.columns(4) # Display 4 images per row
+    
+    for i, img in enumerate(st.session_state.sample_images):
+        with cols[i % 4]:
+            st.image(img, caption=f"Image {i+1}", use_column_width=True)
+
+    st.markdown(create_alert_card("""
+        <h4>💡 Image Interpretation</h4>
+        <p>Images with more blue tones might indicate flooded areas or high water content. 
+        Grayish tones could represent urban development, while greener tones suggest vegetation or rural areas.</p>
+        <p><strong>Note:</strong> This is a simulated demonstration. Real satellite analysis involves complex image processing and machine learning techniques to detect flood extent, water levels, and land cover changes.</p>
+    """, "info"), unsafe_allow_html=True)
+
+elif page == "📈 Results & Export":
+    st.markdown('<div class="section-header">📈 Model Performance & Export</div>', unsafe_allow_html=True)
+    
+    if not st.session_state.models_trained or not st.session_state.model_results:
+        st.markdown(create_alert_card("""
+            ⚠️ <strong>Models Required</strong><br>
+            Please train models first from the Model Training page to view results.
+        """, "warning"), unsafe_allow_html=True)
+        st.stop()
+    
+    results_df = pd.DataFrame(st.session_state.model_results).T
+    results_df = results_df.drop(columns=['Model', 'Test_Predictions', 'Train_Predictions'], errors='ignore')
+    
+    st.markdown("#### 📊 Model Performance Summary")
+    st.dataframe(results_df.sort_values(by='Test_R²', ascending=False), use_container_width=True)
+    
+    # Enhanced visualizations of model performance
+    st.markdown("#### 📈 Performance Visualizations")
+    
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown(create_alert_card("""
-            <h4>🧠 Deep Learning Architecture</h4>
-            <ul>
-                <li>🔷 Convolutional Neural Network (CNN)</li>
-                <li>🔸 4 Conv2D layers with BatchNormalization</li>
-                <li>🔹 Progressive feature extraction (32→64→128→256)</li>
-                <li>🔸 MaxPooling for dimensionality reduction</li>
-                <li>🔹 Dense layers with Dropout regularization</li>
-                <li>🔸 Sigmoid activation for flood probability</li>
-            </ul>
-        """, "info"), unsafe_allow_html=True)
+        fig_r2 = px.bar(
+            results_df.reset_index(),
+            x='index',
+            y='Test_R²',
+            title='R² Score Comparison',
+            labels={'index': 'Model', 'Test_R²': 'R² Score'},
+            color='Test_R²',
+            color_continuous_scale=px.colors.sequential.Plasma
+        )
+        st.plotly_chart(fig_r2, use_container_width=True)
     
     with col2:
-        st.markdown(create_alert_card("""
-            <h4>📊 Model Specifications</h4>
-            <ul>
-                <li>📥 Input: 128×128×3 RGB satellite images</li>
-                <li>📤 Output: Flood probability (0-1)</li>
-                <li>⚡ Optimizer: Adam (lr=0.001)</li>
-                <li>📉 Loss Function: Binary crossentropy</li>
-                <li>📊 Metrics: Accuracy, Precision, Recall</li>
-                <li>🎯 Batch Size: 32, Epochs: 50</li>
-            </ul>
-        """, "success"), unsafe_allow_html=True)
+        fig_rmse = px.bar(
+            results_df.reset_index(),
+            x='index',
+            y='Test_RMSE',
+            title='RMSE Comparison',
+            labels={'index': 'Model', 'Test_RMSE': 'RMSE'},
+            color='Test_RMSE',
+            color_continuous_scale=px.colors.sequential.Viridis_r # Reversed for lower RMSE = better
+        )
+        st.plotly_chart(fig_rmse, use_container_width=True)
+
+    # Overfitting analysis
+    st.markdown("#### 📉 Overfitting Analysis")
+    fig_overfit = px.scatter(
+        results_df.reset_index(),
+        x='Train_R²',
+        y='Test_R²',
+        size='Overfitting_Score',
+        color='Overfitting_Score',
+        hover_name='index',
+        title='Train vs Test R² (Overfitting)',
+        labels={'index': 'Model', 'Train_R²': 'Train R²', 'Test_R²': 'Test R²', 'Overfitting_Score': 'Overfitting Score'},
+        color_continuous_scale=px.colors.sequential.Inferno
+    )
+    fig_overfit.add_shape(
+        type="line",
+        x0=0, y0=0, x1=1, y1=1,
+        line=dict(color="Red", dash="dash"),
+        name="Ideal Fit"
+    )
+    st.plotly_chart(fig_overfit, use_container_width=True)
+
+    # Export options
+    st.markdown("#### 💾 Export Results")
     
-    # Sample satellite images display
-    st.markdown("#### 🖼️ Sample Satellite Image Dataset")
-    
-    if hasattr(st.session_state, 'sample_images'):
-        images = st.session_state.sample_images
-        
-        # Create image categories
-        image_categories = {
-            "🌊 Flood-Prone Areas": images[:4],
-            "🏙️ Urban Regions": images[4:8], 
-            "🌿 Rural/Forest Areas": images[8:12]
-        }
-        
-        for category, cat_images in image_categories.items():
-            st.markdown(f"##### {category}")
-            
-            cols = st.columns(4)
-            for i, img_array in enumerate(cat_images):
-                with cols[i]:
-                    # Convert numpy array to PIL Image
-                    img_pil = Image.fromarray(img_array)
-                    st.image(img_pil, caption=f"Sample {i+1}", use_column_width=True)
-                    
-                    # Add classification button
-                    if st.button(f"🔍 Analyze {i+1}", key=f"{category}_{i}"):
-                        # Simulate classification
-                        fake_prob = np.random.random()
-                        if fake_prob > 0.6:
-                            st.error(f"🔴 High Flood Risk: {fake_prob:.1%}")
-                        elif fake_prob > 0.3:
-                            st.warning(f"🟡 Medium Flood Risk: {fake_prob:.1%}")
-                        else:
-                            st.success(f"🟢 Low Flood Risk: {fake_prob:.1%}")
-    
-    # Enhanced CNN training simulation
-    st.markdown("#### 🚀 CNN Model Training & Evaluation")
-    
-    col1, col2 = st.columns([2, 1])
+    col1, col2, col3 = st.columns(3)
     
     with col1:
-        # Training configuration
-        with st.form("cnn_training_config"):
-            st.markdown("##### ⚙️ Training Configuration")
-            
-            config_col1, config_col2 = st.columns(2)
-            
-            with config_col1:
-                epochs = st.slider("📊 Training Epochs", 10, 100, 50, 10)
-                batch_size = st.selectbox("📦 Batch Size", [16, 32, 64, 128], index=1)
-                learning_rate = st.selectbox("📈 Learning Rate", [0.001, 0.01, 0.1], index=0)
-            
-            with config_col2:
-                dropout_rate = st.slider("🎯 Dropout Rate", 0.1, 0.7, 0.5, 0.1)
-                validation_split = st.slider("✅ Validation Split", 0.1, 0.3, 0.2, 0.05)
-                use_augmentation = st.checkbox("🔄 Data Augmentation", value=True)
-            
-            train_cnn = st.form_submit_button("🚀 Train CNN Model", type="primary", use_container_width=True)
+        csv_export = results_df.to_csv(index=True).encode('utf-8')
+        st.download_button(
+            label="Download Results as CSV",
+            data=csv_export,
+            file_name="model_performance_results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
     
     with col2:
-        st.markdown(create_alert_card("""
-            <h4>🎯 Training Tips</h4>
-            <ul>
-                <li>Higher epochs = Better learning but longer training</li>
-                <li>Larger batch size = Faster training but more memory</li>
-                <li>Lower learning rate = More stable but slower convergence</li>
-                <li>Dropout prevents overfitting</li>
-                <li>Data augmentation improves generalization</li>
-            </ul>
-        """, "info"), unsafe_allow_html=True)
-    
-    if train_cnn:
-        st.markdown("#### 🔄 Training Progress")
-        
-        # Simulate training with realistic progress
-        progress_container = st.container()
-        
-        with progress_container:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            metrics_container = st.container()
-            
-            # Initialize training history
-            train_loss = []
-            val_loss = []
-            train_acc = []
-            val_acc = []
-            train_precision = []
-            train_recall = []
-            
-            # Live metrics display
-            with metrics_container:
-                metric_cols = st.columns(5)
-                loss_metric = metric_cols[0].empty()
-                acc_metric = metric_cols[1].empty()
-                val_loss_metric = metric_cols[2].empty()
-                val_acc_metric = metric_cols[3].empty()
-                lr_metric = metric_cols[4].empty()
-            
-            # Simulate realistic training progression
-            for epoch in range(epochs):
-                # Simulate realistic loss decrease with some noise
-                base_train_loss = 0.9 * np.exp(-epoch / 20) + 0.1
-                base_val_loss = 1.0 * np.exp(-epoch / 25) + 0.15
-                
-                # Add realistic noise
-                tl = base_train_loss + np.random.normal(0, 0.05)
-                vl = base_val_loss + np.random.normal(0, 0.07)
-                
-                # Simulate accuracy improvement
-                ta = 0.5 + 0.45 * (1 - np.exp(-epoch / 15)) + np.random.normal(0, 0.02)
-                va = 0.45 + 0.4 * (1 - np.exp(-epoch / 18)) + np.random.normal(0, 0.025)
-                
-                # Simulate precision and recall
-                tp = ta + np.random.normal(0, 0.01)
-                tr = ta + np.random.normal(0, 0.015)
-                
-                # Ensure realistic bounds
-                tl = max(0.05, tl)
-                vl = max(0.1, vl)
-                ta = min(0.98, max(0.5, ta))
-                va = min(0.95, max(0.45, va))
-                tp = min(0.98, max(0.5, tp))
-                tr = min(0.98, max(0.5, tr))
-                
-                train_loss.append(tl)
-                val_loss.append(vl)
-                train_acc.append(ta)
-                val_acc.append(va)
-                train_precision.append(tp)
-                train_recall.append(tr)
-                
-                # Update status
-                status_text.text(f"Epoch {epoch+1}/{epochs} - Training...")
-                
-                # Update live metrics
-                loss_metric.metric("Train Loss", f"{tl:.4f}")
-                acc_metric.metric("Train Acc", f"{ta:.3f}")
-                val_loss_metric.metric("Val Loss", f"{vl:.4f}")
-                val_acc_metric.metric("Val Acc", f"{va:.3f}")
-                current_lr = learning_rate * (0.95 ** (epoch // 10))  # Learning rate decay
-                lr_metric.metric("Learning Rate", f"{current_lr:.5f}")
-                
-                # Update progress
-                progress_bar.progress((epoch + 1) / epochs)
-                
-                # Simulate training time
-                time.sleep(0.1)
-        
-        # Training completion
-        status_text.success("✅ CNN Training Completed!")
-        
-        # Enhanced training results
-        st.markdown("#### 📈 Training Results & Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Training history plot
-            fig_history = make_subplots(
-                rows=2, cols=1,
-                subplot_titles=('📉
+        excel_export = BytesIO()
+        with pd.ExcelWriter(excel_export, engine='xlsxwriter') as writer:
+            results_df.to_excel(writer, sheet_name='Model Results', index=True)
+        excel_export.seek(0)
+        st.download_button(
+            label="Download Results as Excel",
+            data=excel_export,
+            file_name="model_performance_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
+    with col3:
+        # Export trained models (simplified - usually involves pickling/joblib)
+        # For demonstration, we'll just create a dummy file or indicate success
+        st.info("Model export functionality (e.g., via Joblib) can be added here.")
+        # Example of how you might offer a dummy download or message
+        st.download_button(
+            label="Download Trained Models (Dummy)",
+            data="Dummy model export content.".encode('utf-8'),
+            file_name="trained_models_dummy.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
+# Footer
+st.markdown("""
+<div class="footer">
+    <p>FloodSentinel Pro © 2025. All rights reserved.</p>
+    <p>Powered by AI and Streamlit.</p>
+</div>
+""", unsafe_allow_html=True)
+
+
