@@ -4,587 +4,639 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
+from sklearn.linear_model import Ridge, ElasticNet
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.impute import SimpleImputer
+from sklearn.decomposition import PCA
+import xgboost as xgb
+import lightgbm as lgb
+from catboost import CatBoostRegressor
+import kagglehub
 import warnings
-import time
-import base64
-from io import BytesIO
+import os
+import cv2
 from PIL import Image
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import time
+import json
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
-# --- Configuration --- #
-APP_TITLE = "FloodSentinel Pro - AI Flood Risk Assessment"
-APP_ICON = "🌊"
+st.set_page_config(
+    page_title="FloodSentinel - AI-Powered Flood Risk Assessment",
+    page_icon="🌊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- Helper Functions for UI Components --- #
-def create_metric_card(title, value, icon="📊"):
-    """Creates an enhanced metric card for display."""
-    return f"""
-    <div class="metric-card">
-        <h3>{icon} {title}</h3>
-        <h2>{value}</h2>
-    </div>
-    """
+# -----------------------------
+# Utilities
+# -----------------------------
+IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
 
-def create_alert_card(message, alert_type="info"):
-    """Creates enhanced alert cards for various messages."""
-    return f'<div class="{alert_type}-card">{message}</div>'
-
-def get_image_as_base64(image_path):
-    """Converts an image to base64 for embedding in HTML/CSS."""
+def safe_open_image(path, target_size=(256, 256)):
+    """Open various image formats robustly, including 16-bit GeoTIFFs, and convert to RGB for display."""
     try:
-        with open(image_path, "rb") as f:
-            return base64.b64encode(f.read()).decode()
-    except FileNotFoundError:
-        return ""
+        img = Image.open(path)
+        img = img.convert("RGB")
+        img = img.resize(target_size)
+        return img
+    except Exception:
+        try:
+            arr = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if arr is None:
+                raise ValueError("cv2 failed to read")
+            # If single-channel, stack to RGB; if multi-channel, take first 3
+            if len(arr.shape) == 2:
+                arr = np.stack([arr]*3, axis=-1)
+            elif arr.shape[2] > 3:
+                arr = arr[:, :, :3]
+            # Normalize to 0-255 if 16-bit
+            if arr.dtype != np.uint8:
+                arr = arr.astype(np.float32)
+                arr -= arr.min()
+                if arr.max() > 0:
+                    arr /= arr.max()
+                arr = (arr * 255).astype(np.uint8)
+            arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+            arr = cv2.resize(arr, target_size)
+            return Image.fromarray(arr)
+        except Exception:
+            return None
 
-# --- Data Generation and Model Definitions --- #
-@st.cache_data
-def generate_sample_flood_data(n_samples=1000):
-    """Generates realistic sample flood data for demonstration."""
-    np.random.seed(42)
-    features = [
-        'monsoon_intensity', 'topography_drainage', 'river_management',
-        'deforestation', 'urbanization', 'climate_change', 'dams_quality',
-        'siltation', 'agricultural_practices', 'encroachments',
-        'disaster_preparedness', 'drainage_systems', 'coastal_vulnerability',
-        'landslides', 'watersheds', 'infrastructure_quality',
-        'population_density', 'wetland_loss', 'planning_adequacy',
-        'political_factors'
-    ]
-    data = {}
-    base_risk = np.random.beta(2, 3, n_samples)
-    for i, feature in enumerate(features):
-        correlation_strength = np.random.uniform(0.3, 0.8)
-        noise = np.random.normal(0, 0.2, n_samples)
-        feature_values = (base_risk * correlation_strength + 
-                         np.random.uniform(0, 1, n_samples) * (1 - correlation_strength) + 
-                         noise)
-        feature_values = np.clip(feature_values, 0, 1)
-        data[feature] = feature_values
-    weights = np.random.uniform(0.5, 2.0, len(features))
-    flood_prob = np.zeros(n_samples)
-    for i, feature in enumerate(features):
-        flood_prob += data[feature] * weights[i]
-    flood_prob = flood_prob / flood_prob.max()
-    flood_prob = np.clip(flood_prob ** 1.5, 0, 1)
-    data['FloodProbability'] = flood_prob
-    df = pd.DataFrame(data)
-    return df
+def scan_image_files(root_dir):
+    """Recursively scan for image files under root_dir."""
+    image_paths = []
+    for r, d, fns in os.walk(root_dir):
+        for f in fns:
+            if f.lower().endswith(IMAGE_EXTS):
+                image_paths.append(os.path.join(r, f))
+    return image_paths
 
-@st.cache_resource
-def get_model_algorithms():
-    """Returns a dictionary of machine learning models with optimized parameters."""
-    return {
-        "🌳 Random Forest": RandomForestRegressor(
-            n_estimators=100, max_depth=10, min_samples_split=5, random_state=42
-        ),
-        "⚡ Gradient Boosting": GradientBoostingRegressor(
-            n_estimators=100, learning_rate=0.1, max_depth=6, random_state=42
-        ),
-        "🧠 Neural Network": MLPRegressor(
-            hidden_layer_sizes=(100, 50, 25), max_iter=1000, learning_rate='adaptive', random_state=42
-        ),
-        "📈 Support Vector": SVR(kernel='rbf', C=1.0, gamma='scale'),
-        "🔗 ElasticNet": ElasticNet(alpha=0.1, l1_ratio=0.5, random_state=42),
-        "🎪 AdaBoost": AdaBoostRegressor(n_estimators=100, learning_rate=1.0, random_state=42),
-        "🌿 Decision Tree": DecisionTreeRegressor(max_depth=10, min_samples_split=5, random_state=42),
-        "👥 K-Neighbors": KNeighborsRegressor(n_neighbors=5, weights='distance'),
-        "📊 Ridge Regression": Ridge(alpha=1.0, random_state=42),
-        "🎯 Linear Regression": LinearRegression()
-    }
+# -----------------------------
+# Streamlit app header
+# -----------------------------
+st.markdown("""
+<style>
+    .main-header {font-size: 3rem; font-weight: bold; text-align: center; background: linear-gradient(90deg, #1e3c72, #2a5298); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 2rem;}
+    .metric-container {background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem; border-radius: 10px; color: white; text-align: center; margin: 0.5rem;}
+    .success-box {background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;}
+    .warning-box {background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); padding: 1rem; border-radius: 10px; color: white; margin: 1rem 0;}
+    .info-box {background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); padding: 1rem; border-radius: 10px; color: #333; margin: 1rem 0;}
+</style>
+""", unsafe_allow_html=True)
 
-@st.cache_data
-def generate_sample_satellite_images(num_images=12):
-    """Generates sample satellite-like images for demonstration."""
-    images = []
-    for i in range(num_images):
-        np.random.seed(i + 42)
-        img = np.random.rand(128, 128, 3)
-        if i < 4:
-            img[:, :, 2] += 0.3
-            img[:, :, 0] *= 0.7
-        elif i < 8:
-            img = (img * 0.6) + 0.2
-        else:
-            img[:, :, 1] += 0.2
-            img[:, :, 0] *= 0.8
-        noise = np.random.normal(0, 0.1, (128, 128, 3))
-        img = np.clip(img + noise, 0, 1)
-        img = (img * 255).astype(np.uint8)
-        images.append(Image.fromarray(img))
-    return images
+if 'models_trained' not in st.session_state:
+    st.session_state.models_trained = False
+if 'dataset_loaded' not in st.session_state:
+    st.session_state.dataset_loaded = False
+if 'model_results' not in st.session_state:
+    st.session_state.model_results = {}
 
-# --- Session State Management --- #
-def init_session_state():
-    """Initializes Streamlit session state variables."""
-    defaults = {
-        'models_trained': False,
-        'dataset_loaded': False,
-        'model_results': {},
-        'sample_data': None,
-        'df_flood': None,
-        'sample_images': None,
-        'X_test': None,
-        'y_test': None,
-        'X_train': None,
-        'y_train': None,
-        'scaler': None,
-        'trained_models': {}
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+if 'use_pca' not in st.session_state:
+    st.session_state.use_pca = True
+if 'pca_n_components' not in st.session_state:
+    st.session_state.pca_n_components = 10  # default as requested
 
-# --- Main Application Layout and Pages --- #
-def apply_custom_css():
-    """Applies custom CSS for enhanced UI design."""
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        .main { font-family: 'Inter', sans-serif; }
-        .main-header { font-size: 3.5rem; font-weight: 700; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 1rem; text-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
-        .sub-header { text-align: center; font-size: 1.3rem; color: #6b7280; margin-bottom: 3rem; font-weight: 400; }
-        .metric-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 16px; color: white; text-align: center; margin: 0.5rem 0; box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3); transition: transform 0.3s ease, box-shadow 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.1); }
-        .metric-card:hover { transform: translateY(-5px); box-shadow: 0 20px 40px rgba(102, 126, 234, 0.4); }
-        .metric-card h3 { margin: 0; font-size: 0.9rem; font-weight: 500; opacity: 0.9; }
-        .metric-card h2 { margin: 0.5rem 0 0 0; font-size: 2.2rem; font-weight: 700; }
-        .success-card { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 1.5rem; border-radius: 16px; color: white; margin: 1rem 0; box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3); border-left: 4px solid #34d399; }
-        .warning-card { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 1.5rem; border-radius: 16px; color: white; margin: 1rem 0; box-shadow: 0 8px 25px rgba(245, 158, 11, 0.3); border-left: 4px solid #fbbf24; }
-        .info-card { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 1.5rem; border-radius: 16px; color: white; margin: 1rem 0; box-shadow: 0 8px 25px rgba(59, 130, 246, 0.3); border-left: 4px solid #60a5fa; }
-        .error-card { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 1.5rem; border-radius: 16px; color: white; margin: 1rem 0; box-shadow: 0 8px 25px rgba(239, 68, 68, 0.3); border-left: 4px solid #f87171; }
-        .sidebar .sidebar-content { background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%); }
-        .stButton > button { border-radius: 25px; border: none; padding: 0.5rem 2rem; font-weight: 600; transition: all 0.3s ease; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
-        .stButton > button:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); }
-        .stForm { background: #f8fafc; padding: 2rem; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05); }
-        .risk-low { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.75rem 1.5rem; border-radius: 25px; font-weight: 600; text-align: center; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3); }
-        .risk-medium { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 0.75rem 1.5rem; border-radius: 25px; font-weight: 600; text-align: center; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3); }
-        .risk-high { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 0.75rem 1.5rem; border-radius: 25px; font-weight: 600; text-align: center; box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3); }
-        .image-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
-        .image-item { border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease; }
-        .image-item:hover { transform: scale(1.05); }
-        .progress-container { background: #f1f5f9; border-radius: 10px; padding: 1rem; margin: 1rem 0; }
-        .footer { text-align: center; padding: 3rem 2rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 16px; margin-top: 3rem; box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3); }
-        .dataframe { border: none !important; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05); }
-        .section-header { font-size: 1.8rem; font-weight: 600; color: #1f2937; margin: 2rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 3px solid #667eea; }
-    </style>
-    """, unsafe_allow_html=True)
+st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
+st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
 
-def page_dashboard():
-    """Renders the Dashboard page."""
-    st.markdown('<div class="section-header">🎯 Project Overview</div>', unsafe_allow_html=True)
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        st.markdown(create_alert_card("""
-            <h4>🌊 Advanced Flood Risk Assessment</h4>
-            <p>FloodSentinel Pro leverages cutting-edge AI technologies to provide comprehensive flood risk analysis. 
-            Our system combines machine learning algorithms with satellite imagery analysis to deliver accurate, 
-            real-time flood predictions for enhanced disaster preparedness.</p>
-            <h4>🚀 Key Capabilities:</h4>
-            <ul>
-                <li>🤖 10+ State-of-the-art ML algorithms</li>
-                <li>🛰️ Multi-temporal satellite imagery analysis</li>
-                <li>📊 Real-time risk assessment dashboard</li>
-                <li>🎯 Interactive prediction interface</li>
-                <li>📈 Comprehensive performance analytics</li>
-                <li>💾 Advanced data export capabilities</li>
-            </ul>
-        """, "info"), unsafe_allow_html=True)
-    with col2:
-        st.markdown(create_alert_card("""
-            <h4>⚡ Quick Start</h4>
-            <p>Get started with FloodSentinel Pro:</p>
-            <ol>
-                <li>🔄 Load sample data</li>
-                <li>📊 Explore data patterns</li>
-                <li>⚙️ Train ML models</li>
-                <li>🔮 Make predictions</li>
-                <li>📈 Analyze results</li>
-            </ol>
-        """, "success"), unsafe_allow_html=True)
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🔄 Initialize Sample Dataset", type="primary", use_container_width=True):
-            with st.spinner("🔄 Generating sample flood risk data..."):
-                time.sleep(2)
-                df_sample = generate_sample_flood_data(1000)
-                sample_images = generate_sample_satellite_images(12)
-                st.session_state.df_flood = df_sample
-                st.session_state.sample_images = sample_images
-                st.session_state.dataset_loaded = True
-                st.session_state.models_trained = False
-                st.session_state.model_results = {}
-                st.session_state.X_test = None
-                st.session_state.y_test = None
-                st.session_state.X_train = None
-                st.session_state.y_train = None
-                st.session_state.scaler = None
-            st.balloons()
-            st.success("✅ Sample dataset loaded successfully!")
-            st.rerun()
-    if st.session_state.dataset_loaded:
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.markdown(create_metric_card("Data Records", f"{len(st.session_state.df_flood):,}", "📋"), unsafe_allow_html=True)
-        with col2:
-            st.markdown(create_metric_card("Features", f"{len(st.session_state.df_flood.columns)-1}", "📊"), unsafe_allow_html=True)
-        with col3:
-            st.markdown(create_metric_card("Satellite Images", "12", "🛰️"), unsafe_allow_html=True)
-        with col4:
-            models_count = len(st.session_state.model_results) if st.session_state.models_trained else 0
-            st.markdown(create_metric_card("Trained Models", f"{models_count}", "🤖"), unsafe_allow_html=True)
+st.sidebar.markdown("### 🧭 Navigation")
+page = st.sidebar.selectbox(
+    "Choose a section:",
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
+)
 
-def page_data_analysis():
-    """Renders the Data Analysis page."""
-    st.markdown('<div class="section-header">📊 Exploratory Data Analysis</div>', unsafe_allow_html=True)
-    if not st.session_state.dataset_loaded or st.session_state.df_flood is None:
-        st.markdown(create_alert_card("""
-            ⚠️ <strong>Dataset Required</strong><br>
-            Please load the sample dataset first from the Dashboard page to begin analysis.
-        """, "warning"), unsafe_allow_html=True)
-        st.stop()
-    df = st.session_state.df_flood
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.markdown(create_metric_card("Total Records", f"{len(df):,}", "📋"), unsafe_allow_html=True)
-    with col2:
-        st.markdown(create_metric_card("Features", f"{len(df.columns)-1}", "📊"), unsafe_allow_html=True)
-    with col3:
-        avg_risk = df['FloodProbability'].mean()
-        st.markdown(create_metric_card("Avg Risk", f"{avg_risk:.2%}", "🎯"), unsafe_allow_html=True)
-    with col4:
-        high_risk_count = (df['FloodProbability'] > 0.7).sum()
-        st.markdown(create_metric_card("High Risk Areas", f"{high_risk_count:,}", "🚨"), unsafe_allow_html=True)
-    st.markdown("#### 🔥 Feature Correlation Matrix")
-    correlations = df.corr(numeric_only=True)['FloodProbability'].abs().sort_values(ascending=False)[1:11]
-    top_features = correlations.index.tolist() + ['FloodProbability']
-    corr_matrix = df[top_features].corr(numeric_only=True)
-    fig_heatmap = px.imshow(
-        corr_matrix, text_auto=True, aspect="auto", color_continuous_scale="RdYlBu_r",
-        title="🔥 Top 10 Features Correlation with Flood Probability"
-    )
-    fig_heatmap.update_layout(height=600)
-    st.plotly_chart(fig_heatmap, use_container_width=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        fig_hist = px.histogram(
-            df, x='FloodProbability', nbins=50, title="🎯 Flood Probability Distribution",
-            color_discrete_sequence=['#667eea'], marginal="box"
-        )
-        fig_hist.update_layout(showlegend=False)
-        st.plotly_chart(fig_hist, use_container_width=True)
-    with col2:
-        df_risk = df.copy()
-        df_risk['Risk_Category'] = pd.cut(
-            df_risk['FloodProbability'], bins=[0, 0.3, 0.6, 1.0],
-            labels=['🟢 Low', '🟡 Medium', '🔴 High'], right=False
-        )
-        risk_counts = df_risk['Risk_Category'].value_counts()
-        fig_pie = px.pie(
-            values=risk_counts.values, names=risk_counts.index,
-            title="🎯 Risk Level Distribution", color_discrete_sequence=['#10b981', '#f59e0b', '#ef4444']
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-    st.markdown("#### 🔍 Feature Impact Analysis")
-    correlations = df.corr(numeric_only=True)['FloodProbability'].abs().sort_values(ascending=False)[1:]
-    fig_corr_bar = px.bar(
-        x=correlations.values, y=correlations.index, orientation='h',
-        title="🔍 Feature Correlation with Flood Probability",
-        color=correlations.values, color_continuous_scale="Viridis",
-        labels={'x': 'Correlation Strength', 'y': 'Features'}
-    )
-    fig_corr_bar.update_layout(height=700)
-    st.plotly_chart(fig_corr_bar, use_container_width=True)
-    st.markdown("#### 📈 Statistical Summary")
-    summary_stats = df.describe()
-    st.dataframe(summary_stats, use_container_width=True)
+# -----------------------------
+# Data loading
+# -----------------------------
+@st.cache_data(show_spinner=False)
+def load_datasets():
+    """Load datasets via KaggleHub and index satellite imagery correctly for SEN12FLOOD."""
+    try:
+        with st.spinner("🔄 Downloading datasets from Kaggle (first run only)..."):
+            path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
+            path2 = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
 
-def page_model_training():
-    """Renders the Model Training page."""
-    st.markdown('<div class="section-header">⚙️ Advanced Model Training</div>', unsafe_allow_html=True)
-    if not st.session_state.dataset_loaded or st.session_state.df_flood is None:
-        st.markdown(create_alert_card("""
-            ⚠️ <strong>Dataset Required</strong><br>
-            Please load the sample dataset first from the Dashboard page to begin training.
-        """, "warning"), unsafe_allow_html=True)
-        st.stop()
-    df = st.session_state.df_flood
-    st.markdown("#### ⚙️ Training Configuration")
-    with st.form("training_config"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            scaler_type = st.selectbox(
-                "📊 Data Scaler:", ["StandardScaler", "MinMaxScaler", "RobustScaler"],
-                help="Choose the scaling method for feature normalization"
-            )
-            test_size = st.slider(
-                "🎯 Test Set Size:", 0.1, 0.4, 0.2, 0.05,
-                help="Proportion of data to use for testing"
-            )
-        with col2:
-            cv_folds = st.slider(
-                "🔄 Cross-Validation Folds:", 3, 10, 5,
-                help="Number of folds for cross-validation"
-            )
-            random_state = st.number_input(
-                "🎲 Random State:", value=42, help="Seed for reproducibility"
-            )
-        with col3:
-            enable_hyperparameter_tuning = st.checkbox(
-                "🔧 Hyperparameter Tuning (Advanced)",
-                help="Enable automated hyperparameter optimization (slower but potentially better results). Not fully implemented for all models."
-            )
-            parallel_training = st.checkbox(
-                "⚡ Parallel Training", value=True,
-                help="Use parallel processing for faster training (Note: Streamlit's nature might limit true parallelism for some operations)"
-            )
-        st.markdown("#### 🎯 Model Selection")
-        models = get_model_algorithms()
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            selected_models = st.multiselect(
-                "Choose models to train:", list(models.keys()),
-                default=list(models.keys())[:5],
-                help="Select one or more models for training and comparison"
-            )
-        with col2:
-            training_requested = st.form_submit_button("🚀 Start Training", type="primary", use_container_width=True)
-    if training_requested:
-        if not selected_models:
-            st.markdown(create_alert_card("""
-                ❌ <strong>No Models Selected</strong><br>
-                Please select at least one model to train.
-            """, "error"), unsafe_allow_html=True)
-            st.stop()
-        X = df.drop('FloodProbability', axis=1)
-        y = df['FloodProbability']
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-        st.session_state.X_train = X_train
-        st.session_state.y_train = y_train
-        st.session_state.X_test = X_test
-        st.session_state.y_test = y_test
-        scaler = None
-        if scaler_type == "StandardScaler":
-            scaler = StandardScaler()
-        elif scaler_type == "MinMaxScaler":
-            scaler = MinMaxScaler()
-        elif scaler_type == "RobustScaler":
-            scaler = RobustScaler()
-        if scaler:
-            X_train_scaled = scaler.fit_transform(X_train)
-            X_test_scaled = scaler.transform(X_test)
-            st.session_state.scaler = scaler
-        else:
-            X_train_scaled = X_train
-            X_test_scaled = X_test
-        st.session_state.model_results = {}
-        st.session_state.trained_models = {}
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        for i, model_name in enumerate(selected_models):
-            status_text.text(f"🚀 Training {model_name}...")
-            model = models[model_name]
-            start_time = time.time()
+        # Load tabular CSV
+        flood_csvs = []
+        for root, _, files in os.walk(path1):
+            for f in files:
+                if f.lower().endswith('.csv'):
+                    flood_csvs.append(os.path.join(root, f))
+        if not flood_csvs:
+            st.error("❌ No CSV found in flood prediction dataset")
+            return None, None, None, None
+        df_flood = pd.read_csv(flood_csvs[0])
+
+        # SEN12FLOOD integration: prefer JSON lists when present for labeled training
+        s1_json = os.path.join(path2, 'S1list.json')
+        s2_json = os.path.join(path2, 'S2list.json')
+
+        labeled_images = []  # [{'path':..., 'label':0/1}]
+        if os.path.exists(s1_json):
             try:
-                model.fit(X_train_scaled, y_train)
-                y_pred = model.predict(X_test_scaled)
-                mse = mean_squared_error(y_test, y_pred)
-                rmse = np.sqrt(mse)
-                r2 = r2_score(y_test, y_pred)
-                mae = mean_absolute_error(y_test, y_pred)
-                cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring='r2')
-                st.session_state.model_results[model_name] = {
-                    'MSE': mse, 'RMSE': rmse, 'R2': r2, 'MAE': mae,
-                    'CV_R2_Mean': np.mean(cv_scores), 'CV_R2_Std': np.std(cv_scores),
-                    'Time': time.time() - start_time
-                }
-                st.session_state.trained_models[model_name] = model
+                with open(s1_json, 'r') as f:
+                    s1_data = json.load(f)
+                for _, seq in s1_data.items():
+                    folder = seq.get('folder', '')
+                    series = seq.get('series', [])
+                    for item in series:
+                        prefix = item.get('prefix')
+                        flooding = item.get('FLOODING', False)
+                        # Try both VV and VH files (VV commonly used)
+                        candidates = [f"{prefix}_VV.tif", f"{prefix}_VH.tif"]
+                        for name in candidates:
+                            p = os.path.join(path2, folder, name)
+                            if os.path.exists(p):
+                                labeled_images.append({'path': p, 'label': int(bool(flooding))})
+                                break
             except Exception as e:
-                st.session_state.model_results[model_name] = {'Error': str(e)}
-                st.error(f"Error training {model_name}: {e}")
-            progress_bar.progress((i + 1) / len(selected_models))
-        status_text.text("✅ Training complete!")
-        st.session_state.models_trained = True
-        st.success("All selected models have been trained!")
-        st.rerun()
-    if st.session_state.models_trained:
-        st.markdown("#### 📈 Training Results Overview")
-        results_df = pd.DataFrame(st.session_state.model_results).T
-        st.dataframe(results_df.style.highlight_max(axis=0, subset=['R2', 'CV_R2_Mean']).highlight_min(axis=0, subset=['MSE', 'RMSE', 'MAE']), use_container_width=True)
-        best_model_name = results_df['R2'].idxmax()
-        st.markdown(create_alert_card(
-            f"🏆 <strong>Best Performing Model:</strong> {best_model_name} with R2 Score: {results_df.loc[best_model_name]['R2']:.4f}",
-            "success"
-        ), unsafe_allow_html=True)
+                st.warning(f"⚠️ Could not parse S1list.json properly: {e}")
 
-def page_risk_prediction():
-    """Renders the Risk Prediction page."""
-    st.markdown('<div class="section-header">🔮 Real-time Risk Prediction</div>', unsafe_allow_html=True)
-    if not st.session_state.models_trained or not st.session_state.trained_models:
-        st.markdown(create_alert_card("""
-            ⚠️ <strong>Models Not Trained</strong><br>
-            Please train models first from the Model Training page to make predictions.
-        """, "warning"), unsafe_allow_html=True)
-        st.stop()
-    st.markdown("#### 📝 Enter New Data for Prediction")
-    df_input = st.session_state.df_flood.drop('FloodProbability', axis=1)
-    sample_input = df_input.iloc[0].to_dict() if not df_input.empty else {feature: 0.5 for feature in get_model_algorithms().values().__iter__().__next__().feature_names_in_}
-    input_data = {}
-    with st.form("prediction_form"):
-        for i, feature in enumerate(sample_input.keys()):
-            input_data[feature] = st.slider(f"**{feature.replace('_', ' ').title()}**", 0.0, 1.0, float(sample_input[feature]), 0.01)
-        selected_prediction_model = st.selectbox(
-            "Select Model for Prediction:",
-            list(st.session_state.trained_models.keys()),
-            help="Choose the trained model to use for predicting flood risk."
-        )
-        predict_button = st.form_submit_button("🔮 Predict Flood Risk", type="primary", use_container_width=True)
-    if predict_button:
-        if selected_prediction_model:
-            model = st.session_state.trained_models[selected_prediction_model]
-            input_df = pd.DataFrame([input_data])
-            if st.session_state.scaler:
-                input_scaled = st.session_state.scaler.transform(input_df)
-            else:
-                input_scaled = input_df
-            prediction = model.predict(input_scaled)[0]
-            st.markdown("#### 📊 Prediction Result")
-            if prediction < 0.3:
-                risk_level = "Low"
-                risk_class = "risk-low"
-            elif prediction < 0.6:
-                risk_level = "Medium"
-                risk_class = "risk-medium"
-            else:
-                risk_level = "High"
-                risk_class = "risk-high"
-            st.markdown(f"""
-            <div style="text-align: center;">
-                <h3>Predicted Flood Probability: <span style="font-size: 2.5rem; color: #667eea;">{prediction:.4f}</span></h3>
-                <div class="{risk_class}">
-                    Risk Level: {risk_level}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.markdown(create_alert_card(
-                f"The predicted flood probability using the <strong>{selected_prediction_model}</strong> model is <strong>{prediction:.4f}</strong>. This indicates a <strong>{risk_level}</strong> risk level.",
-                "info"
-            ), unsafe_allow_html=True)
-        else:
-            st.markdown(create_alert_card("❌ Please select a model for prediction.", "error"), unsafe_allow_html=True)
+        # Fallback and also global count: scan all image files
+        all_image_files = scan_image_files(path2)
 
-def page_satellite_analysis():
-    """Renders the Satellite Analysis page."""
-    st.markdown('<div class="section-header">🛰️ Satellite Imagery Analysis</div>', unsafe_allow_html=True)
-    if not st.session_state.dataset_loaded or st.session_state.sample_images is None:
-        st.markdown(create_alert_card("""
-            ⚠️ <strong>Sample Images Required</strong><br>
-            Please load the sample dataset from the Dashboard page to view satellite images.
-        """, "warning"), unsafe_allow_html=True)
-        st.stop()
-    st.markdown("#### 🖼️ Sample Satellite Images")
-    st.markdown("<p>These are simulated satellite images demonstrating potential flood scenarios and terrain types.</p>", unsafe_allow_html=True)
-    images_per_row = 4
-    cols = st.columns(images_per_row)
-    for i, img in enumerate(st.session_state.sample_images):
-        buffered = BytesIO()
-        img.save(buffered, format="PNG")
-        img_str = base64.b64encode(buffered.getvalue()).decode()
-        with cols[i % images_per_row]:
-            st.markdown(f"""
-            <div class="image-item">
-                <img src="data:image/png;base64,{img_str}" style="width:100%; height:auto; display:block;">
-                <p style="text-align:center; font-size:0.8em; margin-top:0.5rem;">Image {i+1}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        return df_flood, labeled_images, all_image_files, path2
 
-def page_results_export():
-    """Renders the Results & Export page."""
-    st.markdown('<div class="section-header">📈 Results & Export</div>', unsafe_allow_html=True)
-    if not st.session_state.models_trained or not st.session_state.model_results:
-        st.markdown(create_alert_card("""
-            ⚠️ <strong>No Results Available</strong><br>
-            Please train models first from the Model Training page to view results and export data.
-        """, "warning"), unsafe_allow_html=True)
-        st.stop()
-    st.markdown("#### 📊 Model Performance Summary")
-    results_df = pd.DataFrame(st.session_state.model_results).T
-    st.dataframe(results_df.style.highlight_max(axis=0, subset=['R2', 'CV_R2_Mean']).highlight_min(axis=0, subset=['MSE', 'RMSE', 'MAE']), use_container_width=True)
-    st.markdown("#### ⬇️ Export Data")
+    except Exception as e:
+        st.error(f"❌ Error loading datasets: {e}")
+        return None, None, None, None
+
+# -----------------------------
+# Models and CNN
+# -----------------------------
+
+def get_model_algorithms():
+    return {
+        "🌳 Random Forest": RandomForestRegressor(n_estimators=200, random_state=42),
+        "🚀 XGBoost": xgb.XGBRegressor(n_estimators=400, learning_rate=0.05, subsample=0.8, colsample_bytree=0.9, random_state=42),
+        "💡 LightGBM": lgb.LGBMRegressor(n_estimators=500, learning_rate=0.05, random_state=42),
+        "🎯 CatBoost": CatBoostRegressor(verbose=False, random_state=42),
+        "⚡ Gradient Boosting": GradientBoostingRegressor(random_state=42),
+        "🧠 Neural Network": MLPRegressor(hidden_layer_sizes=(128, 64), max_iter=800, random_state=42),
+        "📈 Support Vector": SVR(kernel='rbf', C=10, gamma='scale'),
+        "🔗 ElasticNet": ElasticNet(random_state=42),
+        "🎪 AdaBoost": AdaBoostRegressor(random_state=42),
+        "🌿 Decision Tree": DecisionTreeRegressor(max_depth=None, random_state=42),
+        "👥 K-Neighbors": KNeighborsRegressor(n_neighbors=7),
+        "📊 Ridge Regression": Ridge(random_state=42)
+    }
+
+
+def create_cnn_model(input_shape=(128, 128, 3)):
+    model = Sequential([
+        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Conv2D(64, (3, 3), activation='relu'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Conv2D(128, (3, 3), activation='relu'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Conv2D(256, (3, 3), activation='relu'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Flatten(),
+        Dense(512, activation='relu'),
+        Dropout(0.5),
+        Dense(256, activation='relu'),
+        Dropout(0.3),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+# -----------------------------
+# Preprocessing helpers (Impute -> Scale -> optional PCA)
+# -----------------------------
+
+def build_preprocessor(scaler_type="StandardScaler", use_pca=True, n_components=10):
+    if scaler_type == "StandardScaler":
+        scaler = StandardScaler()
+    elif scaler_type == "MinMaxScaler":
+        scaler = MinMaxScaler()
+    else:
+        scaler = RobustScaler()
+    imputer = SimpleImputer(strategy='median')
+    pca = PCA(n_components=n_components) if use_pca else None
+    return imputer, scaler, pca
+
+
+def fit_transform_preprocessor(X_train, X_test, scaler_type, use_pca, n_components):
+    imputer, scaler, pca = build_preprocessor(scaler_type, use_pca, n_components)
+    X_train_imp = imputer.fit_transform(X_train)
+    X_test_imp = imputer.transform(X_test)
+    X_train_scaled = scaler.fit_transform(X_train_imp)
+    X_test_scaled = scaler.transform(X_test_imp)
+    if use_pca:
+        X_train_proc = pca.fit_transform(X_train_scaled)
+        X_test_proc = pca.transform(X_test_scaled)
+    else:
+        X_train_proc, X_test_proc = X_train_scaled, X_test_scaled
+    return X_train_proc, X_test_proc, imputer, scaler, pca
+
+# -----------------------------
+# Pages
+# -----------------------------
+if page == "🏠 Home":
+    st.markdown("### 🎯 Project Overview")
     col1, col2 = st.columns(2)
     with col1:
-        csv_data = st.session_state.df_flood.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download Sample Data (CSV)",
-            data=csv_data,
-            file_name="flood_sample_data.csv",
-            mime="text/csv",
-            type="secondary",
-            use_container_width=True
-        )
+        st.markdown("""
+        <div class="info-box">
+            <h4>🌊 Problem Statement</h4>
+            <p>Floods cause severe socio-economic impacts. We combine tabular risk indicators with satellite imagery to assess and predict flood risk.</p>
+        </div>
+        """, unsafe_allow_html=True)
     with col2:
-        excel_data = BytesIO()
-        results_df.to_excel(excel_data, index=True, sheet_name='Model Results')
-        excel_data.seek(0)
-        st.download_button(
-            label="Download Model Results (Excel)",
-            data=excel_data,
-            file_name="model_training_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="secondary",
-            use_container_width=True
-        )
+        st.markdown("""
+        <div class="warning-box">
+            <h4>🚀 Key Features</h4>
+            <ul>
+                <li>⚙️ Robust preprocessing (imputation, scaling, PCA)</li>
+                <li>🛰️ SEN12FLOOD satellite dataset integration</li>
+                <li>📊 PCA insights and variance explained</li>
+                <li>🔮 Prediction using top-10 PCA components</li>
+                <li>📈 Interactive dashboards</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
-# --- Main Application Logic --- #
-def main():
-    st.set_page_config(
-        page_title=APP_TITLE,
-        page_icon=APP_ICON,
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-    apply_custom_css()
-    init_session_state()
+    if st.button("🔄 Load Datasets", type="primary"):
+        df_flood, labeled_images, all_images, sat_root = load_datasets()
+        if df_flood is not None:
+            st.session_state.df_flood = df_flood
+            st.session_state.labeled_images = labeled_images or []
+            st.session_state.all_sat_image_files = all_images or []
+            st.session_state.sat_root = sat_root
+            st.session_state.dataset_loaded = True
+            st.success("✅ Datasets loaded successfully!")
+            st.info(f"🛰️ Satellite dataset indexed: {len(st.session_state.all_sat_image_files):,} image files found.")
+        else:
+            st.error("❌ Failed to load datasets")
 
-    st.markdown(f'<h1 class="main-header">{APP_ICON} FloodSentinel Pro</h1>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Advanced AI-Powered Flood Risk Assessment System</p>', unsafe_allow_html=True)
+elif page == "📊 Data Analysis":
+    st.markdown("### 📊 Exploratory Data Analysis with Preprocessing and PCA")
+    if not st.session_state.dataset_loaded:
+        st.warning("⚠️ Please load datasets first from the Home page")
+        st.stop()
+    df = st.session_state.df_flood.copy()
 
-    st.sidebar.markdown("### 🧭 Navigation")
-    page = st.sidebar.selectbox(
-        "Choose a section:",
-        ["🏠 Dashboard", "📊 Data Analysis", "⚙️ Model Training", "🔮 Risk Prediction", "🛰️ Satellite Analysis", "📈 Results & Export"],
-        help="Navigate through different sections of the application"
-    )
+    # Basic metrics
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f"""
+        <div class="metric-container"><h3>📋 Records</h3><h2>{len(df)}</h2></div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""
+        <div class="metric-container"><h3>📊 Features</h3><h2>{len(df.columns)-1}</h2></div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""
+        <div class="metric-container"><h3>🎯 Target</h3><h2>FloodProbability</h2></div>
+        """, unsafe_allow_html=True)
+    with c4:
+        total_imgs = len(st.session_state.all_sat_image_files) if 'all_sat_image_files' in st.session_state else 0
+        st.markdown(f"""
+        <div class="metric-container"><h3>🛰️ Satellite Images</h3><h2>{total_imgs:,}</h2></div>
+        """, unsafe_allow_html=True)
 
-    if page == "🏠 Dashboard":
-        page_dashboard()
-    elif page == "📊 Data Analysis":
-        page_data_analysis()
-    elif page == "⚙️ Model Training":
-        page_model_training()
-    elif page == "🔮 Risk Prediction":
-        page_risk_prediction()
-    elif page == "🛰️ Satellite Analysis":
-        page_satellite_analysis()
-    elif page == "📈 Results & Export":
-        page_results_export()
+    st.markdown("#### 🧹 Preprocessing Steps")
+    # Show missing values and plan
+    na_counts = df.isna().sum().sort_values(ascending=False)
+    st.write("Missing values per column (top 15):", na_counts.head(15))
+    st.info("Imputation: median for numeric features. Scaling: selectable. PCA: optional for dimensionality reduction.")
 
-    st.markdown("""
-    <div class="footer">
-        <p>&copy; 2025 FloodSentinel Pro. All rights reserved.</p>
-        <p>Developed with ❤️ using Streamlit and Scikit-learn.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Correlation heatmap
+    corr_matrix = df.corr(numeric_only=True).round(2)
+    fig = go.Figure(data=[go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns,
+        y=corr_matrix.index,
+        colorscale='RdYlBu_r', zmin=-1, zmax=1,
+        text=corr_matrix.values, texttemplate="%{text}", colorbar=dict(title="Correlation")
+    )], layout=go.Layout(title="🔥 Feature Correlation Heatmap", height=600))
+    st.plotly_chart(fig, use_container_width=True)
 
-if __name__ == "__main__":
-    main()
+    # PCA Exploration on full data (after impute+scale) for insights only
+    st.markdown("#### 🧠 PCA Insights (Exploratory)")
+    scaler_choice = st.selectbox("Scaler for EDA (does not affect training until next page):", ["StandardScaler", "MinMaxScaler", "RobustScaler"], index=["StandardScaler","MinMaxScaler","RobustScaler"].index("StandardScaler"))
+    pca_k = st.slider("Number of PCA components to visualize", min_value=2, max_value=min(30, max(2, df.shape[1]-1)), value=10)
+
+    feature_cols = [c for c in df.columns if c != 'FloodProbability' and np.issubdtype(df[c].dtype, np.number)]
+    X_full = df[feature_cols]
+    imputer = SimpleImputer(strategy='median')
+    X_imp = imputer.fit_transform(X_full)
+    if scaler_choice == "StandardScaler":
+        sc = StandardScaler()
+    elif scaler_choice == "MinMaxScaler":
+        sc = MinMaxScaler()
+    else:
+        sc = RobustScaler()
+    X_scaled = sc.fit_transform(X_imp)
+    pca_eda = PCA(n_components=pca_k).fit(X_scaled)
+    explained = pca_eda.explained_variance_ratio_
+
+    ev_fig = px.bar(x=[f"PC{i+1}" for i in range(len(explained))], y=explained, title="Variance Explained by Components")
+    ev_fig.add_trace(go.Scatter(x=[f"PC{i+1}" for i in range(len(explained))], y=np.cumsum(explained), mode='lines+markers', name='Cumulative'))
+    st.plotly_chart(ev_fig, use_container_width=True)
+
+    # 2D scatter of first two PCs colored by target
+    pcs = pca_eda.transform(X_scaled)
+    pca_df = pd.DataFrame({"PC1": pcs[:,0], "PC2": pcs[:,1], "FloodProbability": df['FloodProbability'].values})
+    st.plotly_chart(px.scatter(pca_df, x='PC1', y='PC2', color='FloodProbability', title="PC1 vs PC2 colored by FloodProbability", color_continuous_scale='Viridis'), use_container_width=True)
+
+    # Feature correlations with target
+    st.markdown("#### 🎯 Top Features by Correlation with Target")
+    corrs = df[feature_cols + ['FloodProbability']].corr()['FloodProbability'].drop('FloodProbability').abs().sort_values(ascending=False)
+    st.plotly_chart(px.bar(x=corrs.values[:20], y=corrs.index[:20], orientation='h', title="Top 20 Features"), use_container_width=True)
+
+elif page == "⚙️ Model Training":
+    st.markdown("### ⚙️ Train Models with Robust Preprocessing and Optional PCA")
+    if not st.session_state.dataset_loaded:
+        st.warning("⚠️ Please load datasets first from the Home page")
+        st.stop()
+
+    df = st.session_state.df_flood.copy()
+    feature_cols = [c for c in df.columns if c != 'FloodProbability' and np.issubdtype(df[c].dtype, np.number)]
+    X = df[feature_cols]
+    y = df['FloodProbability']
+
+    c1, c2 = st.columns(2)
+    with c1:
+        scaler_type = st.selectbox("📊 Scaler:", ["StandardScaler", "MinMaxScaler", "RobustScaler"], index=0)
+        test_size = st.slider("🎯 Test Size:", 0.1, 0.4, 0.2, 0.05)
+        use_pca = st.checkbox("Use PCA", value=True)
+    with c2:
+        cv_folds = st.slider("🔄 Cross-Validation Folds:", 3, 10, 5)
+        random_state = st.number_input("🎲 Random State:", value=42)
+        n_components = st.slider("# PCA Components (used in training)", min_value=2, max_value=min(50, len(feature_cols)), value=10)
+
+    if st.button("🚀 Train Models", type="primary"):
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+        X_train_proc, X_test_proc, imputer, scaler, pca = fit_transform_preprocessor(X_train, X_test, scaler_type, use_pca, n_components)
+
+        models = get_model_algorithms()
+        selected_models = list(models.keys())  # train all by default; UI can be added if needed
+        results = {}
+        progress = st.progress(0)
+        status = st.empty()
+
+        for i, name in enumerate(selected_models):
+            status.text(f"🔄 Training {name}...")
+            model = models[name]
+            start = time.time()
+            model.fit(X_train_proc, y_train)
+            tr_time = time.time() - start
+            y_pred = model.predict(X_test_proc)
+            mse = mean_squared_error(y_test, y_pred)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(y_test, y_pred)
+            r2 = r2_score(y_test, y_pred)
+            try:
+                cv_scores = cross_val_score(model, X_train_proc, y_train, cv=cv_folds, scoring='r2')
+                cv_mean, cv_std = cv_scores.mean(), cv_scores.std()
+            except Exception:
+                cv_mean, cv_std = np.nan, np.nan
+            results[name] = {
+                'MSE': mse, 'RMSE': rmse, 'MAE': mae, 'R²': r2,
+                'CV_Mean': cv_mean, 'CV_Std': cv_std, 'Training_Time': tr_time,
+                'Model': model, 'Predictions': y_pred
+            }
+            progress.progress((i+1)/len(selected_models))
+
+        # Save artifacts for prediction stage
+        st.session_state.model_results = results
+        st.session_state.models_trained = True
+        st.session_state.X_columns = feature_cols
+        st.session_state.imputer = imputer
+        st.session_state.scaler = scaler
+        st.session_state.pca = pca
+        st.session_state.use_pca = use_pca
+        st.session_state.pca_n_components = n_components
+        st.session_state.y_test = y_test
+        st.session_state.X_test_proc = X_test_proc
+
+        status.text("✅ Training complete")
+        st.success("🎉 Models trained with preprocessing and PCA configuration saved for predictions.")
+
+elif page == "🔮 Predictions":
+    st.markdown("### 🔮 Flood Risk Predictions using Top PCA Components")
+    if not st.session_state.models_trained:
+        st.warning("⚠️ Please train models first from the Model Training page")
+        st.stop()
+
+    # Show configuration
+    st.info(f"Using PCA: {st.session_state.use_pca} | Components used: {st.session_state.pca_n_components}")
+
+    with st.form("prediction_form"):
+        st.markdown("##### 🌦️ Environmental Factors (enter values between 0 and 1)")
+        # Build inputs dynamically from training columns if they match known names
+        inputs = {}
+        cols = st.columns(3)
+        for i, col in enumerate(st.session_state.X_columns):
+            default_val = 0.5
+            try:
+                minv, maxv = float(np.nanmin(st.session_state.df_flood[col])), float(np.nanmax(st.session_state.df_flood[col]))
+                default_val = float(np.clip(np.nanmean(st.session_state.df_flood[col]), 0.0, 1.0)) if np.isfinite(minv) and np.isfinite(maxv) else 0.5
+            except Exception:
+                pass
+            with cols[i % 3]:
+                inputs[col] = st.slider(col, 0.0, 1.0, default_val)
+        submitted = st.form_submit_button("⚡ Predict Flood Risk")
+
+    if submitted:
+        input_df = pd.DataFrame([{k: v for k, v in inputs.items()}])
+        # Apply same preprocessing
+        X_imp = st.session_state.imputer.transform(input_df)
+        X_scaled = st.session_state.scaler.transform(X_imp)
+        if st.session_state.use_pca and st.session_state.pca is not None:
+            X_proc = st.session_state.pca.transform(X_scaled)
+        else:
+            X_proc = X_scaled
+
+        predictions = {}
+        for name, info in st.session_state.model_results.items():
+            pred = float(info['Model'].predict(X_proc)[0])
+            predictions[name] = pred
+
+        col1, col2 = st.columns(2)
+        with col1:
+            ensemble_pred = float(np.mean(list(predictions.values())))
+            risk_level = "🟢 Low Risk" if ensemble_pred < 0.3 else ("🟡 Medium Risk" if ensemble_pred < 0.6 else "🔴 High Risk")
+            st.markdown(f"""
+            <div class=\"metric-container\"> <h3>🎯 Ensemble Prediction</h3> <h1>{ensemble_pred:.2%}</h1> <h4>{risk_level}</h4> </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            pred_df = pd.DataFrame({
+                'Model': list(predictions.keys()),
+                'Prediction': [f"{p:.2%}" for p in predictions.values()],
+                'Risk_Level': ["🟢 Low" if p < 0.3 else "🟡 Medium" if p < 0.6 else "🔴 High" for p in predictions.values()]
+            })
+            st.dataframe(pred_df, use_container_width=True)
+        st.plotly_chart(px.bar(x=list(predictions.keys()), y=list(predictions.values()), title="📊 Model Predictions Comparison", color=list(predictions.values()), color_continuous_scale="RdYlGn_r"), use_container_width=True)
+
+elif page == "🛰️ Satellite Analysis":
+    st.markdown("### 🛰️ Satellite Imagery Analysis (SEN12FLOOD)")
+    if not st.session_state.dataset_loaded:
+        st.warning("⚠️ Please load datasets first from the Home page")
+        st.stop()
+
+    # Dataset linkage summary
+    total_found = len(st.session_state.all_sat_image_files)
+    st.success(f"✅ Linked SEN12FLOOD dataset. {total_found:,} image files found.")
+    if total_found == 36107:
+        st.info("This matches the expected 36,107 images.")
+
+    labeled = st.session_state.labeled_images
+    st.markdown(f"Labeled Sentinel-1 images available: {len(labeled):,}")
+
+    # Filters
+    colf1, colf2, colf3 = st.columns(3)
+    with colf1:
+        show_only_labeled = st.checkbox("Show only labeled S1 images", value=True)
+    with colf2:
+        label_filter = st.selectbox("Label filter", options=["All", "Flooded (1)", "Not Flooded (0)"], index=0)
+    with colf3:
+        page_size = st.selectbox("Images per page", options=[12, 24, 48], index=0)
+
+    # Build gallery list
+    if show_only_labeled and labeled:
+        gallery = labeled
+        if label_filter != "All":
+            want = 1 if "Flooded" in label_filter else 0
+            gallery = [g for g in gallery if g['label'] == want]
+        gallery_paths = [g['path'] for g in gallery]
+    else:
+        gallery_paths = st.session_state.all_sat_image_files
+
+    total_gallery = len(gallery_paths)
+    st.markdown(f"Showing {min(page_size, total_gallery)} of {total_gallery:,} images on this page.")
+
+    # Pagination
+    num_pages = max(1, int(np.ceil(total_gallery / page_size)))
+    page_idx = st.number_input("Page", min_value=1, max_value=num_pages, value=1)
+    start = (page_idx - 1) * page_size
+    end = min(start + page_size, total_gallery)
+
+    cols = st.columns(4)
+    for i, p in enumerate(gallery_paths[start:end]):
+        img = safe_open_image(p, target_size=(256, 256))
+        with cols[i % 4]:
+            if img is not None:
+                cap = os.path.basename(p)
+                if show_only_labeled and labeled:
+                    # find label
+                    lab = next((li['label'] for li in labeled if li['path'] == p), None)
+                    cap += f" | Flood: {lab}"
+                st.image(img, caption=cap, use_column_width=True)
+            else:
+                st.info(f"Preview not supported: {os.path.basename(p)}")
+
+    st.markdown("#### 🚀 Train a CNN on Labeled Sentinel-1 Thumbnails")
+    if st.button("🔄 Train CNN Model", type="primary"):
+        if not labeled:
+            st.error("No labeled Sentinel-1 images parsed from S1list.json. Cannot train CNN.")
+        else:
+            with st.spinner("Training CNN on labeled images (using flow_from_dataframe)..."):
+                cnn_model = create_cnn_model()
+                # Prepare dataframe
+                df_imgs = pd.DataFrame(labeled)
+                df_imgs['label'] = df_imgs['label'].astype(str)
+                train_df, val_df = train_test_split(df_imgs, test_size=0.2, random_state=42, stratify=df_imgs['label'])
+                train_gen = ImageDataGenerator(rescale=1./255, shear_range=0.1, zoom_range=0.1, horizontal_flip=True)
+                val_gen = ImageDataGenerator(rescale=1./255)
+                train_flow = train_gen.flow_from_dataframe(train_df, x_col='path', y_col='label', target_size=(128,128), batch_size=32, class_mode='binary')
+                val_flow = val_gen.flow_from_dataframe(val_df, x_col='path', y_col='label', target_size=(128,128), batch_size=32, class_mode='binary')
+                history = cnn_model.fit(train_flow, steps_per_epoch=max(1, train_flow.n // train_flow.batch_size), epochs=5, validation_data=val_flow, validation_steps=max(1, val_flow.n // val_flow.batch_size))
+                # Plot history
+                fig_training = make_subplots(rows=1, cols=2, subplot_titles=('📉 Loss', '📈 Accuracy'))
+                fig_training.add_trace(go.Scatter(y=history.history['loss'], name='Train Loss', line=dict(color='blue')), row=1, col=1)
+                fig_training.add_trace(go.Scatter(y=history.history['val_loss'], name='Val Loss', line=dict(color='red')), row=1, col=1)
+                fig_training.add_trace(go.Scatter(y=history.history['accuracy'], name='Train Acc', line=dict(color='green')), row=1, col=2)
+                fig_training.add_trace(go.Scatter(y=history.history['val_accuracy'], name='Val Acc', line=dict(color='orange')), row=1, col=2)
+                fig_training.update_layout(height=400, title_text="🧠 CNN Training History")
+                st.plotly_chart(fig_training, use_container_width=True)
+                st.success("✅ CNN model training completed!")
+
+elif page == "📈 Results Dashboard":
+    st.markdown("### 📈 Model Results and Diagnostics")
+    if not st.session_state.models_trained:
+        st.warning("⚠️ Please train models first from the Model Training page")
+        st.stop()
+
+    results = st.session_state.model_results
+    perf_data = []
+    for name, m in results.items():
+        perf_data.append({'Model': name, 'R² Score': m['R²'], 'RMSE': m['RMSE'], 'MAE': m['MAE'], 'CV Mean': m['CV_Mean'], 'CV Std': m['CV_Std'], 'Training Time (s)': m['Training_Time']})
+    perf_df = pd.DataFrame(perf_data).sort_values('R² Score', ascending=False)
+
+    # Highlights
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        best_row = perf_df.iloc[0]
+        st.markdown(f"""<div class='metric-container'><h4>🥇 Best Model</h4><h3>{best_row['Model']}</h3><p>R²: {best_row['R² Score']:.3f}</p></div>""", unsafe_allow_html=True)
+    with c2:
+        fast_row = perf_df.loc[perf_df['Training Time (s)'].idxmin()]
+        st.markdown(f"""<div class='metric-container'><h4>⚡ Fastest</h4><h3>{fast_row['Model']}</h3><p>{fast_row['Training Time (s)']:.2f}s</p></div>""", unsafe_allow_html=True)
+    with c3:
+        stable_row = perf_df.loc[perf_df['CV Std'].idxmin()]
+        st.markdown(f"""<div class='metric-container'><h4>🎯 Most Stable</h4><h3>{stable_row['Model']}</h3><p>CV Std: {stable_row['CV Std']:.3f}</p></div>""", unsafe_allow_html=True)
+
+    st.dataframe(perf_df, use_container_width=True)
+
+    st.plotly_chart(px.bar(perf_df.sort_values('R² Score'), x='R² Score', y='Model', orientation='h', title='🎯 R² Score', color='R² Score', color_continuous_scale='Viridis'), use_container_width=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.plotly_chart(px.bar(perf_df.sort_values('RMSE'), x='RMSE', y='Model', orientation='h', title='📉 RMSE', color='RMSE', color_continuous_scale='Reds'), use_container_width=True)
+    with c2:
+        st.plotly_chart(px.bar(perf_df.sort_values('Training Time (s)'), x='Training Time (s)', y='Model', orientation='h', title='⏱️ Training Time', color='Training Time (s)', color_continuous_scale='Blues'), use_container_width=True)
+
+    st.markdown("#### 🔍 Prediction Diagnostics")
+    sel_model = st.selectbox("Model for detailed plots", list(results.keys()))
+    if sel_model:
+        y_test = st.session_state.y_test
+        y_pred = st.session_state.model_results[sel_model]['Predictions']
+        fig_scatter = px.scatter(x=y_test, y=y_pred, title=f'{sel_model}: Predictions vs Actual', labels={'x':'Actual', 'y':'Predicted'}, color=np.abs(y_test - y_pred), color_continuous_scale='RdYlGn_r')
+        min_val, max_val = float(min(y_test.min(), y_pred.min())), float(max(y_test.max(), y_pred.max()))
+        fig_scatter.add_trace(go.Scatter(x=[min_val, max_val], y=[min_val, max_val], mode='lines', name='Perfect', line=dict(color='red', dash='dash')))
+        st.plotly_chart(fig_scatter, use_container_width=True)
+        residuals = y_test - y_pred
+        fig_res = px.scatter(x=y_pred, y=residuals, title=f'{sel_model}: Residuals', labels={'x':'Predicted', 'y':'Residuals'}, color=np.abs(residuals), color_continuous_scale='Reds')
+        fig_res.add_hline(y=0, line_dash='dash', line_color='red')
+        st.plotly_chart(fig_res, use_container_width=True)
+
+    st.markdown("#### 🎯 Feature Importance (Tree Models)")
+    tree_like = ['🌳 Random Forest', '🚀 XGBoost', '💡 LightGBM', '🎯 CatBoost', '⚡ Gradient Boosting']
+    avail_trees = [m for m in tree_like if m in results]
+    if avail_trees:
+        imp_model = st.selectbox("Select model for importance", avail_trees)
+        if imp_model:
+            model = results[imp_model]['Model']
+            if hasattr(model, 'feature_importances_'):
+                # If PCA used, feature importance is on PCs; map to PC names
+                if st.session_state.use_pca and st.session_state.pca is not None:
+                    feat_names = [f"PC{i+1}" for i in range(st.session_state.pca_n_components)]
+                else:
+                    feat_names = st.session_state.X_columns
+                importances = model.feature_importances_
+                df_imp = pd.DataFrame({'Feature': feat_names[:len(importances)], 'Importance': importances}).sort_values('Importance', ascending=False)
+                st.plotly_chart(px.bar(df_imp.head(15), x='Importance', y='Feature', orientation='h', title=f'{imp_model}: Top Importances'), use_container_width=True)
+                st.dataframe(df_imp.head(10), use_container_width=True)
+
 
