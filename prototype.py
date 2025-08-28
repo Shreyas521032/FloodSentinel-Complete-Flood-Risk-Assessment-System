@@ -1060,11 +1060,6 @@ st.markdown("""
             font-size: 0.9em;
             transition: background-color 0.3s, color 0.3s;
         }
-
-        .footer:hover {
-            background-color: #f0f2f6; /* Lighter background on hover */
-            color: #2a5298; /* Darker text on hover */
-        }
     </style>
     <div class="footer">
         <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>
