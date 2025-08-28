@@ -133,19 +133,29 @@ def load_datasets():
             else:
                 st.error("❌ No CSV files found in flood prediction dataset")
                 return None, None
+            if st.button("🔄 Load Datasets", type="primary"):
+        df_flood, sat_files = load_datasets()
+        if df_flood is not None:
+            st.session_state.df_flood = df_flood
+            st.session_state.sat_files = sat_files
+            st.session_state.dataset_loaded = True
+            st.success("✅ Datasets loaded successfully!")
+        else:
+            st.error("❌ Failed to load datasets")
+
             
-            sat_files = []
-            sat_image_dir = '/home/ubuntu/upload/satellite_images'
-            if os.path.exists(sat_image_dir):
-                for root, dirs, files in os.walk(sat_image_dir):
-                    for file in files:
-                        if file.endswith(('.jpg', '.png', '.tif')):
-                            sat_files.append(os.path.join(root, file))
-                st.success(f"✅ Found {len(sat_files)} satellite images in {sat_image_dir}")
-            else:
-                st.warning(f"⚠️ Satellite image directory not found at {sat_image_dir}. Using dummy data.")
+            # sat_files = []
+            # sat_image_dir = '/home/ubuntu/upload/satellite_images'
+            # if os.path.exists(sat_image_dir):
+            #     for root, dirs, files in os.walk(sat_image_dir):
+            #         for file in files:
+            #             if file.endswith(('.jpg', '.png', '.tif')):
+            #                 sat_files.append(os.path.join(root, file))
+            #     st.success(f"✅ Found {len(sat_files)} satellite images in {sat_image_dir}")
+            # else:
+            #     st.warning(f"⚠️ Satellite image directory not found at {sat_image_dir}. Using dummy data.")
             
-            return df_flood, sat_files
+            # return df_flood, sat_files
             
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
