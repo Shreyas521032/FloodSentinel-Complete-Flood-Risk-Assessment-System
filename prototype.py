@@ -725,27 +725,27 @@ elif page == "🛰️ Satellite Analysis":
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
         display_count = min(12, len(sat_files))
-        cols_true = st.columns(display_count)
-
-        # Simulating true and false color composites for the demo
-        for i in range(display_count):
-            img_path = sat_files[i]            
-            try:
-                with cols[i]:
-                    if os.path.exists(img_path):
-                        # True-Color Composite (Simulated)
-                        # We are just loading the image as RGB for the demo to give a "true color" effect.
-                        img_rgb = Image.open(img_path).convert('RGB')
-                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)                      
-
-                        # False-Color Flood Composite (Simulated)
-                        # Here, we simulate a false-color effect by inverting the image for visual contrast
-                        img_false_color = img_rgb.point(lambda p: 255 - p)
-                        st.image(img_false_color, caption=f"False-Color Composite {i+1}", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error loading image {i+1}: {str(e)}")
-    else:
-        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
+        cols = st.columns(display_count)
+        
+        # Simulating true and false color composites for the demo
+        for i in range(display_count):
+            img_path = sat_files[i]
+            try:
+                with cols[i]:
+                    if os.path.exists(img_path):
+                        # True-Color Composite (Simulated)
+                        # We are just loading the image as RGB for the demo to give a "true color" effect.
+                        img_rgb = Image.open(img_path).convert('RGB')
+                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
+                        
+                        # False-Color Flood Composite (Simulated)
+                        # Here, we simulate a false-color effect by inverting the image for visual contrast
+                        img_false_color = img_rgb.point(lambda p: 255 - p)
+                        st.image(img_false_color, caption=f"False-Color Composite {i+1}", use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ Error loading image {i+1}: {str(e)}")
+    else:
+        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
 
     st.markdown("#### 2. Deep Learning Model Training")
     st.markdown("""
