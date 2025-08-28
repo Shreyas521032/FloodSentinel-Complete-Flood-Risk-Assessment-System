@@ -118,15 +118,11 @@ def load_datasets_actual():
     """Load datasets from Kaggle, including unzipping image data."""
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
-            # Download the tabular flood prediction dataset
             path_tabular = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
             st.success(f"✅ Tabular data downloaded to: {path_tabular}")
-
-            # Download the satellite imagery dataset
             path_sat = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
             st.success(f"✅ Satellite imagery data downloaded to: {path_sat}")
-
-            # Find and load the CSV file
+            
             flood_files = [os.path.join(root, file) for root, dirs, files in os.walk(path_tabular) for file in files if file.endswith('.csv')]
             if flood_files:
                 df_flood = pd.read_csv(flood_files[0])
@@ -134,10 +130,9 @@ def load_datasets_actual():
             else:
                 st.error("❌ No CSV files found in flood prediction dataset")
                 return None, []
-
+                
             sat_files = []
             st.info("Unzipping satellite image data. This may take a while...")
-
             zip_paths = [os.path.join(root, file) for root, dirs, files in os.walk(path_sat) for file in files if file.endswith('.zip')]
 
             if not zip_paths:
@@ -153,7 +148,6 @@ def load_datasets_actual():
                             extract_dir = os.path.join(path_sat, os.path.basename(zip_path).replace('.zip', ''))
                             zip_ref.extractall(extract_dir)
                             st.success(f"✅ Unzipped: {os.path.basename(zip_path)}")
-                            
                             for root, _, files in os.walk(extract_dir):
                                 for file in files:
                                     if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
@@ -176,7 +170,6 @@ def load_datasets_actual():
 
 def get_model_algorithms():
     """Get all state-of-the-art algorithms"""
-    # Exclude Logistic Regression as it's a classifier and the target is continuous
     return {
         "🌳 Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
         "🚀 XGBoost": xgb.XGBRegressor(random_state=42),
@@ -196,7 +189,6 @@ def preprocess_image(img_path):
     """Preprocess image for CNN"""
     try:
         img = Image.open(img_path)
-        # Convert to RGB to handle multi-band TIFF files
         img = img.convert('RGB')
         img = img.resize((128, 128))
         img = np.array(img).astype(np.float32) / 255.0
@@ -242,11 +234,11 @@ def create_cnn_model(input_shape=(128, 128, 3)):
 
 # Create sample data function for demo purposes
 def create_sample_data():
-    """Create sample flood prediction data for demonstration"""
+    """Create sample flood prediction data for demonstration with global coordinates"""
     np.random.seed(42)
     n_samples = 1000
     
-    # Generate synthetic flood prediction dataset
+    # Generate synthetic flood prediction dataset with global coordinates
     data = {
         'MonsoonIntensity': np.random.uniform(0.1, 1.0, n_samples),
         'TopographyDrainage': np.random.uniform(0.0, 1.0, n_samples),
@@ -268,12 +260,13 @@ def create_sample_data():
         'WetlandLoss': np.random.uniform(0.0, 1.0, n_samples),
         'InadequatePlanning': np.random.uniform(0.0, 1.0, n_samples),
         'PoliticalFactors': np.random.uniform(0.0, 1.0, n_samples),
-        'Latitude': np.random.uniform(8.0, 37.0, n_samples),
-        'Longitude': np.random.uniform(68.0, 97.0, n_samples)
+        'Latitude': np.random.uniform(-90, 90, n_samples), # Global latitude range
+        'Longitude': np.random.uniform(-180, 180, n_samples) # Global longitude range
     }
     
     df = pd.DataFrame(data)
     
+    # Create a realistic flood probability based on key factors
     df['FloodProbability'] = (
         0.3 * df['MonsoonIntensity'] +
         0.15 * df['ClimateChange'] +
@@ -791,9 +784,8 @@ elif page == "🛰️ Satellite Analysis":
             
             st.markdown("##### 📈 Training Progress")
             
-            epochs = 5
+            epochs = 15 # Increased epochs to get more realistic training metrics
             
-            # Using ImageDataGenerator for data augmentation
             datagen = ImageDataGenerator(
                 rotation_range=20,
                 width_shift_range=0.2,
