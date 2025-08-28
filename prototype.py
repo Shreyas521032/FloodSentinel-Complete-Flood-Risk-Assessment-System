@@ -87,7 +87,7 @@ st.markdown("""
         margin: 1rem 0;
     }
     .footer {
-        position: fixed;
+        position: relative;
         left: 0;
         bottom: 0;
         width: 100%;
@@ -445,6 +445,7 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
+    
     st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
     
     key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
@@ -723,24 +724,28 @@ elif page == "🛰️ Satellite Analysis":
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
         display_count = min(12, len(sat_files))
-        cols = st.columns(display_count)
         
-        # Simulating true and false color composites for the demo
+        # Create headers for the table-like layout
+        st.markdown("##### True-Color Images")
+        cols_true = st.columns(display_count)
+        
+        st.markdown("##### False-Color Composites")
+        cols_false = st.columns(display_count)
+
         for i in range(display_count):
             img_path = sat_files[i]
             
             try:
-                with cols[i]:
-                    if os.path.exists(img_path):
-                        # True-Color Composite (Simulated)
-                        # We are just loading the image as RGB for the demo to give a "true color" effect.
-                        img_rgb = Image.open(img_path).convert('RGB')
-                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
-                        
-                        # False-Color Flood Composite (Simulated)
-                        # Here, we simulate a false-color effect by inverting the image for visual contrast
-                        img_false_color = img_rgb.point(lambda p: 255 - p)
-                        st.image(img_false_color, caption=f"False-Color Composite {i+1}", use_container_width=True)
+                if os.path.exists(img_path):
+                    # True-Color Composite (Simulated)
+                    img_rgb = Image.open(img_path).convert('RGB')
+                    with cols_true[i]:
+                        st.image(img_rgb, caption=f"True Color {i+1}", use_container_width=True)
+                    
+                    # False-Color Flood Composite (Simulated)
+                    img_false_color = img_rgb.point(lambda p: 255 - p)
+                    with cols_false[i]:
+                        st.image(img_false_color, caption=f"False Color {i+1}", use_container_width=True)
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
@@ -766,14 +771,18 @@ elif page == "🛰️ Satellite Analysis":
             processed_images = []
             processed_labels = []
             
-            with st.spinner("Processing images..."):
-                for i, img_path in enumerate(sat_files[:1000]):
-                    img_array = preprocess_image(img_path)
-                    if img_array is not None:
-                        processed_images.append(img_array)
-                        processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
-                    if i % 20 == 0:
-                        st.progress(i / min(200, len(sat_files)))
+            num_images_to_process = min(1000, len(sat_files)) # Limit processing to 1000 images
+            progress_bar = st.progress(0)
+
+            for i, img_path in enumerate(sat_files[:num_images_to_process]):
+                img_array = preprocess_image(img_path)
+                if img_array is not None:
+                    processed_images.append(img_array)
+                    processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
+                
+                progress_bar.progress((i + 1) / num_images_to_process)
+            
+            progress_bar.empty()
             
             if not processed_images:
                 st.error("❌ No images were successfully processed for CNN training.")
@@ -1095,7 +1104,6 @@ st.sidebar.info("""
 - 📈 Comprehensive performance analysis
 """)
 
-# --- New Footer Section with interactive styling ---
 st.markdown("---")
 st.markdown("""
     <style>
