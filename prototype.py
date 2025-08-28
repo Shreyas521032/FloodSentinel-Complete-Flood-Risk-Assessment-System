@@ -328,7 +328,7 @@ elif page == "📊 Data Analysis":
     fig_corr_bar = px.bar(
         x=correlations.values,
         y=correlations.index,
-        orientation=\'h\',
+        orientation="h",
         title="🔍 Feature Correlation with Flood Probability",
         color=correlations.values,
         color_continuous_scale="Viridis"
