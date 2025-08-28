@@ -724,7 +724,7 @@ elif page == "🛰️ Satellite Analysis":
     if sat_files:
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
-        display_count = min(6, len(sat_files))
+        display_count = min(12, len(sat_files))
         
         # Display the True-Color images in a single row
         st.subheader("True-Color Images")
