@@ -323,7 +323,7 @@ elif page == "📊 Data Analysis":
         st.plotly_chart(fig_box, use_container_width=True)
     
     st.markdown("#### 🎯 Top Features Analysis")
-    correlations = df.corr(numeric_only=True)["FloodProbability"].abs().sort_values(ascending=False)[1:]
+        correlations = df.corr(numeric_only=True)["FloodProbability"].abs().sort_values(ascending=False)[1:]
     
     fig_corr_bar = px.bar(
         x=correlations.values,
