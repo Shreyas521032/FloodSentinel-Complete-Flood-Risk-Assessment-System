@@ -130,6 +130,7 @@ page = st.sidebar.selectbox(
     ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
 
+@st.cache_resource
 def load_datasets_actual():
     """Load datasets from Kaggle, including unzipping image data."""
     try:
@@ -723,29 +724,33 @@ elif page == "🛰️ Satellite Analysis":
     if sat_files:
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
-        display_count = min(12, len(sat_files))
+        display_count = min(6, len(sat_files))
         
         # Create headers for the table-like layout
-        st.markdown("##### True-Color Images")
         cols_true = st.columns(display_count)
         
-        st.markdown("##### False-Color Composites")
-        cols_false = st.columns(display_count)
-
         for i in range(display_count):
             img_path = sat_files[i]
-            
             try:
                 if os.path.exists(img_path):
-                    # True-Color Composite (Simulated)
                     img_rgb = Image.open(img_path).convert('RGB')
                     with cols_true[i]:
                         st.image(img_rgb, caption=f"True Color {i+1}", use_container_width=True)
-                    
-                    # False-Color Flood Composite (Simulated)
-                    img_false_color = img_rgb.point(lambda p: 255 - p)
-                    with cols_false[i]:
-                        st.image(img_false_color, caption=f"False Color {i+1}", use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ Error loading image {i+1}: {str(e)}")
+
+        st.markdown("---")
+        st.markdown("##### Processed for Model Training")
+        cols_processed = st.columns(display_count)
+        
+        for i in range(display_count):
+            img_path = sat_files[i]
+            try:
+                if os.path.exists(img_path):
+                    processed_img = preprocess_image(img_path)
+                    if processed_img is not None:
+                        with cols_processed[i]:
+                            st.image(processed_img, caption=f"Processed Image {i+1}", use_container_width=True)
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
@@ -771,16 +776,20 @@ elif page == "🛰️ Satellite Analysis":
             processed_images = []
             processed_labels = []
             
-            num_images_to_process = min(100, len(sat_files)) # Limit processing to 1000 images
+            num_images_to_process = min(100, len(sat_files))
             progress_bar = st.progress(0)
 
             for i, img_path in enumerate(sat_files[:num_images_to_process]):
                 img_array = preprocess_image(img_path)
                 if img_array is not None:
                     processed_images.append(img_array)
-                    processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
+                    # --- ADDED LABEL NOISE FOR REALISTIC TRAINING ---
+                    is_flood = 1.0 if 'flood' in img_path.lower() else 0.0
+                    label_with_noise = np.clip(is_flood + np.random.normal(0, 0.1), 0, 1)
+                    processed_labels.append(label_with_noise)
                 
-                progress_bar.progress((i + 1) / num_images_to_process)
+                if num_images_to_process > 0:
+                    progress_bar.progress((i + 1) / num_images_to_process)
             
             progress_bar.empty()
             
@@ -803,7 +812,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 15
+            epochs = 10
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
