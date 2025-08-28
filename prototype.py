@@ -238,7 +238,6 @@ def create_sample_data():
     np.random.seed(42)
     n_samples = 1000
     
-    # Generate synthetic flood prediction dataset with global coordinates
     data = {
         'MonsoonIntensity': np.random.uniform(0.1, 1.0, n_samples),
         'TopographyDrainage': np.random.uniform(0.0, 1.0, n_samples),
@@ -260,13 +259,12 @@ def create_sample_data():
         'WetlandLoss': np.random.uniform(0.0, 1.0, n_samples),
         'InadequatePlanning': np.random.uniform(0.0, 1.0, n_samples),
         'PoliticalFactors': np.random.uniform(0.0, 1.0, n_samples),
-        'Latitude': np.random.uniform(-90, 90, n_samples), # Global latitude range
-        'Longitude': np.random.uniform(-180, 180, n_samples) # Global longitude range
+        'Latitude': np.random.uniform(-90, 90, n_samples),
+        'Longitude': np.random.uniform(-180, 180, n_samples)
     }
     
     df = pd.DataFrame(data)
     
-    # Create a realistic flood probability based on key factors
     df['FloodProbability'] = (
         0.3 * df['MonsoonIntensity'] +
         0.15 * df['ClimateChange'] +
@@ -433,22 +431,35 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
-
-    st.markdown("#### 🌍 Geographical Distribution of Flood Probability")
-    if 'Latitude' in df.columns and 'Longitude' in df.columns and 'FloodProbability' in df.columns:
-        fig_geo = px.scatter_mapbox(df, 
-                                     lat="Latitude", 
-                                     lon="Longitude", 
-                                     color="FloodProbability", 
-                                     size="FloodProbability",
-                                     color_continuous_scale=px.colors.sequential.Plasma,
-                                     zoom=1,
-                                     title="Geographical Distribution of Flood Probability",
-                                     mapbox_style="carto-positron")
-        fig_geo.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
-        st.plotly_chart(fig_geo, use_container_width=True)
-    else:
-        st.info("Latitude, Longitude, or FloodProbability columns not found for geographical plot.")
+    
+    # --- New visualizations added here ---
+    st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
+    
+    # Select a few key factors for the scatter plot
+    key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
+    if all(col in df.columns for col in key_factors):
+        fig_scatter = px.scatter_matrix(
+            df[key_factors + ['FloodProbability']],
+            dimensions=key_factors,
+            color='FloodProbability',
+            title='Pairwise Scatter Plot of Key Factors',
+            color_continuous_scale=px.colors.sequential.Plasma
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+    
+    st.markdown("#### 🎯 Impact of Key Factors on Flood Probability")
+    
+    # Melt the data for a box plot visualization
+    df_melt = df.melt(id_vars=['FloodProbability'], value_vars=key_factors, var_name='Factor', value_name='Value')
+    
+    fig_factors = px.box(
+        df_melt,
+        x='Factor',
+        y='FloodProbability',
+        color='Factor',
+        title='Impact of Key Factors on Flood Probability'
+    )
+    st.plotly_chart(fig_factors, use_container_width=True)
 
 elif page == "⚙️ Model Training":
     st.markdown("### ⚙️ State-of-the-Art Model Training")
@@ -679,69 +690,55 @@ elif page == "🔮 Predictions":
                 st.plotly_chart(fig_pred, use_container_width=True)
 
 elif page == "🛰️ Satellite Analysis":
-    st.markdown("### 🛰️ Satellite Imagery Analysis")
+    st.markdown("### 🛰️ Satellite Imagery Analysis: A Step-by-Step Guide")
+    
     if not st.session_state.dataset_loaded:
         st.warning("⚠️ Please load datasets first from the Home page")
         st.stop()
     
-    st.markdown("#### 🖼️ Deep Learning for Satellite Imagery")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("""
-        <div class="info-box">
-            <h4>🧠 CNN Architecture</h4>
-            <ul>
-                <li>Conv2D + BatchNorm + MaxPool layers</li>
-                <li>Progressive feature extraction (32→64→128→256)</li>
-                <li>Dense layers with dropout regularization</li>
-                <li>Sigmoid activation for binary classification</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("""
-        <div class="success-box">
-            <h4>📊 Model Features</h4>
-            <ul>
-                <li>Input: 128x128x3 RGB images</li>
-                <li>Output: Flood probability (0-1)</li>
-                <li>Optimizer: Adam with learning rate 0.001</li>
-                <li>Loss: Binary crossentropy</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("#### 📸 Sample Satellite Images")
+    st.markdown("#### 1. Data Preprocessing")
+    st.markdown("""
+    To train a Deep Learning model, raw satellite images must first be preprocessed. This involves:
+    - **Loading**: Opening the raw image files (e.g., GeoTIFFs).
+    - **Color Conversion**: Converting them to a standard RGB format that a CNN can process.
+    - **Resizing**: Resizing all images to a uniform dimension (e.g., 128x128 pixels).
+    - **Normalization**: Scaling pixel values from 0-255 to a 0-1 range for stable training.
+    """)
     
     sat_files = st.session_state.sat_files
     if sat_files:
-        st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
-        display_count = min(12, len(sat_files))
-        cols = st.columns(4)
+        st.write(f"Found {len(sat_files)} satellite images. Displaying a few raw and processed samples:")
+        
+        display_count = min(6, len(sat_files))
+        cols = st.columns(display_count)
         for i in range(display_count):
             img_path = sat_files[i]
             try:
-                with cols[i % 4]:
+                with cols[i]:
                     if os.path.exists(img_path):
-                        img = Image.open(img_path)
-                        img = img.convert('RGB')
-                        st.image(img, caption=f"Image {i+1}", use_container_width=True)
-                    else:
-                        st.info(f"📁 Image {i+1} (Path: {os.path.basename(img_path)}) - File not found.")
+                        # Display raw image (or converted for display)
+                        img_raw = Image.open(img_path).convert('RGB')
+                        st.image(img_raw, caption=f"Original Image {i+1}", use_container_width=True)
+                        
+                        # Display processed image (from the function)
+                        processed_img = preprocess_image(img_path)
+                        if processed_img is not None:
+                             st.image(processed_img, caption=f"Processed Image {i+1}", use_container_width=True)
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
         st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
+
+    st.markdown("#### 2. Deep Learning Model Training")
+    st.markdown("""
+    A Convolutional Neural Network (CNN) is a powerful tool for image analysis. Our model uses several layers to automatically learn features from the images. To avoid overfitting, we use **data augmentation** to introduce variability into the training data.
+    """)
     
-    st.markdown("#### 🚀 CNN Model Training")
-    
-    if st.button("🔄 Train CNN Model", type="primary", key="train_cnn"):
+    if st.button("🚀 Train CNN Model", type="primary", key="train_cnn"):
+        st.info("Training CNN model...")
+        
         if not sat_files:
             st.info("No real satellite images available. Creating synthetic image data for CNN demonstration...")
-            
             np.random.seed(42)
             num_samples = 200
             processed_images = np.random.rand(num_samples, 128, 128, 3).astype(np.float32)
@@ -753,38 +750,34 @@ elif page == "🛰️ Satellite Analysis":
             processed_labels = []
             
             with st.spinner("Processing images..."):
-                for i, img_path in enumerate(sat_files[:100]):
+                for i, img_path in enumerate(sat_files[:200]): # Increased to 200 for a better demo
                     img_array = preprocess_image(img_path)
                     if img_array is not None:
                         processed_images.append(img_array)
                         processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
-                    
-                    if i % 10 == 0:
-                        st.progress(i / min(100, len(sat_files)))
+                    if i % 20 == 0:
+                        st.progress(i / min(200, len(sat_files)))
             
             if not processed_images:
                 st.error("❌ No images were successfully processed for CNN training.")
                 st.stop()
-
             processed_images = np.array(processed_images)
             processed_labels = np.array(processed_labels)
         
         X_train_cnn, X_val_cnn, y_train_cnn, y_val_cnn = train_test_split(
             processed_images, processed_labels, test_size=0.2, random_state=42
         )
-
+        
         with st.spinner("🔄 Training CNN model..."):
             cnn_model = create_cnn_model()
             
             st.markdown("##### 🏗️ Model Architecture")
-            
             model_summary = []
             cnn_model.summary(print_fn=lambda x: model_summary.append(x))
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            
-            epochs = 15 # Increased epochs to get more realistic training metrics
+            epochs = 15 # Increased epochs
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
@@ -809,66 +802,24 @@ elif page == "🛰️ Satellite Analysis":
             train_acc = history.history["accuracy"]
             val_acc = history.history["val_accuracy"]
             
-            fig_training = make_subplots(
-                rows=1, cols=2,
-                subplot_titles=("📉 Loss", "📈 Accuracy")
-            )
-            
-            fig_training.add_trace(
-                go.Scatter(y=train_loss, name="Training Loss", line=dict(color="blue")),
-                row=1, col=1
-            )
-            fig_training.add_trace(
-                go.Scatter(y=val_loss, name="Validation Loss", line=dict(color="red")),
-                row=1, col=1
-            )
-            fig_training.add_trace(
-                go.Scatter(y=train_acc, name="Training Accuracy", line=dict(color="green")),
-                row=1, col=2
-            )
-            fig_training.add_trace(
-                go.Scatter(y=val_acc, name="Validation Accuracy", line=dict(color="orange")),
-                row=1, col=2
-            )
-            
+            fig_training = make_subplots(rows=1, cols=2, subplot_titles=("📉 Loss", "📈 Accuracy"))
+            fig_training.add_trace(go.Scatter(y=train_loss, name="Training Loss", line=dict(color="blue")), row=1, col=1)
+            fig_training.add_trace(go.Scatter(y=val_loss, name="Validation Loss", line=dict(color="red")), row=1, col=1)
+            fig_training.add_trace(go.Scatter(y=train_acc, name="Training Accuracy", line=dict(color="green")), row=1, col=2)
+            fig_training.add_trace(go.Scatter(y=val_acc, name="Validation Accuracy", line=dict(color="orange")), row=1, col=2)
             fig_training.update_layout(height=400, title_text="🧠 CNN Training History")
             st.plotly_chart(fig_training, use_container_width=True)
-            
             st.success("✅ CNN model training completed!")
             
             col1, col2, col3, col4 = st.columns(4)
-            
             with col1:
-                st.markdown(f"""
-                <div class="metric-container">
-                    <h4>📉 Final Loss</h4>
-                    <h2>{train_loss[-1]:.4f}</h2>
-                </div>
-                """, unsafe_allow_html=True)
-            
+                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]:.4f}</h2></div>""", unsafe_allow_html=True)
             with col2:
-                st.markdown(f"""
-                <div class="metric-container">
-                    <h4>📈 Final Accuracy</h4>
-                    <h2>{train_acc[-1]:.2%}</h2>
-                </div>
-                """, unsafe_allow_html=True)
-            
+                st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
             with col3:
-                st.markdown(f"""
-                <div class="metric-container">
-                    <h4>🎯 Val Accuracy</h4>
-                    <h2>{val_acc[-1]:.2%}</h2>
-                </div>
-                """, unsafe_allow_html=True)
-            
+                st.markdown(f"""<div class="metric-container"><h4>🎯 Val Accuracy</h4><h2>{val_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
             with col4:
-                st.markdown(f"""
-                <div class="metric-container">
-                    <h4>⚡ Parameters</h4>
-                    <h2>{cnn_model.count_params():,}</h2>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>⚡ Parameters</h4><h2>{cnn_model.count_params():,}</h2></div>""", unsafe_allow_html=True)
 
 elif page == "📈 Results Dashboard":
     st.markdown("### 📈 Results Dashboard")
@@ -903,35 +854,17 @@ elif page == "📈 Results Dashboard":
     with col1:
         if len(perf_df) > 0:
             best_model = perf_df.iloc[0]
-            st.markdown(f"""
-            <div class="metric-container">
-                <h4>🥇 Best Model</h4>
-                <h3>{best_model['Model']}</h3>
-                <p>R² Score: {best_model['R² Score']:.4f}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best_model['Model']}</h3><p>R² Score: {best_model['R² Score']:.4f}</p></div>""", unsafe_allow_html=True)
     
     with col2:
         if len(perf_df) > 0:
             fastest_model = perf_df.loc[perf_df['Training Time (s)'].idxmin()]
-            st.markdown(f"""
-            <div class="metric-container">
-                <h4>⚡ Fastest Model</h4>
-                <h3>{fastest_model['Model']}</h3>
-                <p>Time: {fastest_model['Training Time (s)']:.2f}s</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-container"><h4>⚡ Fastest Model</h4><h3>{fastest_model['Model']}</h3><p>Time: {fastest_model['Training Time (s)']:.2f}s</p></div>""", unsafe_allow_html=True)
     
     with col3:
         if len(perf_df) > 0:
             most_stable = perf_df.loc[perf_df['CV Std'].idxmin()]
-            st.markdown(f"""
-            <div class="metric-container">
-                <h4>🎯 Most Stable</h4>
-                <h3>{most_stable['Model']}</h3>
-                <p>CV Std: {most_stable['CV Std']:.4f}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-container"><h4>🎯 Most Stable</h4><h3>{most_stable['Model']}</h3><p>CV Std: {most_stable['CV Std']:.4f}</p></div>""", unsafe_allow_html=True)
     
     st.markdown("##### 📊 Detailed Performance Metrics")
     st.dataframe(perf_df, use_container_width=True)
