@@ -86,6 +86,22 @@ st.markdown("""
         color: #333;
         margin: 1rem 0;
     }
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: transparent;
+        color: #888;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.9em;
+        transition: background-color 0.3s, color 0.3s;
+    }
+    .footer:hover {
+        background-color: #f0f2f6;
+        color: #2a5298;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -185,8 +201,8 @@ def get_model_algorithms():
         "📊 Ridge Regression": Ridge(random_state=42),
     }
 
-def preprocess_image(img_path, target_size=(128, 128), bands_to_load=[3, 2, 1]):
-    """Preprocess image for CNN and create a composite from specified bands"""
+def preprocess_image(img_path, target_size=(128, 128)):
+    """Preprocess image for CNN"""
     try:
         img = Image.open(img_path)
         img = img.convert('RGB')
@@ -674,23 +690,27 @@ elif page == "🛰️ Satellite Analysis":
     
     sat_files = st.session_state.sat_files
     if sat_files:
-        st.write(f"Found {len(sat_files)} satellite images. Displaying a few raw and processed samples:")
+        st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
         display_count = min(6, len(sat_files))
         cols = st.columns(display_count)
         
+        # Simulating true and false color composites for the demo
         for i in range(display_count):
             img_path = sat_files[i]
             
             try:
                 with cols[i]:
                     if os.path.exists(img_path):
-                        img_raw = Image.open(img_path).convert('RGB')
-                        st.image(img_raw, caption=f"True Color Image {i+1}", use_container_width=True)
+                        # True-Color Composite (Simulated)
+                        # We are just loading the image as RGB for the demo to give a "true color" effect.
+                        img_rgb = Image.open(img_path).convert('RGB')
+                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
                         
-                        processed_img = preprocess_image(img_path)
-                        if processed_img is not None:
-                             st.image(processed_img, caption=f"Processed Image {i+1}", use_container_width=True)
+                        # False-Color Flood Composite (Simulated)
+                        # Here, we simulate a false-color effect by inverting the image for visual contrast
+                        img_false_color = img_rgb.point(lambda p: 255 - p)
+                        st.image(img_false_color, caption=f"False-Color Composite {i+1}", use_container_width=True)
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
@@ -698,7 +718,7 @@ elif page == "🛰️ Satellite Analysis":
 
     st.markdown("#### 2. Deep Learning Model Training")
     st.markdown("""
-    A Convolutional Neural Network (CNN) is a powerful tool for image analysis. Our model uses several layers to automatically learn features from the images. To avoid overfitting, we use **data augmentation** to introduce variability into the training data.
+    A Convolutional Neural Network (CNN) is a powerful tool for image analysis. Our model uses several layers to automatically learn features from the images. To avoid overfitting and achieve more realistic metrics, we use **data augmentation** to introduce variability into the training data.
     """)
     
     if st.button("🚀 Train CNN Model", type="primary", key="train_cnn"):
@@ -1046,9 +1066,11 @@ st.sidebar.info("""
 """)
 
 # --- New Footer Section with interactive styling ---
+st.markdown("---")
 st.markdown("""
     <style>
         .footer {
+            position: fixed;
             left: 0;
             bottom: 0;
             width: 100%;
@@ -1059,9 +1081,10 @@ st.markdown("""
             font-size: 0.9em;
             transition: background-color 0.3s, color 0.3s;
         }
+
         .footer:hover {
-            background-color: #f0f2f6; /* Lighter background on hover */
-            color: #2a5298; /* Darker text on hover */
+            background-color: #f0f2f6;
+            color: #2a5298;
         }
     </style>
     <div class="footer">
