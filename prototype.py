@@ -771,7 +771,7 @@ elif page == "🛰️ Satellite Analysis":
             processed_images = []
             processed_labels = []
             
-            num_images_to_process = min(1000, len(sat_files)) # Limit processing to 1000 images
+            num_images_to_process = min(500, len(sat_files)) # Limit processing to 1000 images
             progress_bar = st.progress(0)
 
             for i, img_path in enumerate(sat_files[:num_images_to_process]):
@@ -803,7 +803,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 30
+            epochs = 20
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
