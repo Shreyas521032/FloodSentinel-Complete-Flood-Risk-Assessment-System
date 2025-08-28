@@ -724,24 +724,37 @@ elif page == "🛰️ Satellite Analysis":
     if sat_files:
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
-        display_count = min(12, len(sat_files))
-        cols = st.columns(display_count)
+        display_count = min(6, len(sat_files))
         
-        # Simulating true and false color composites for the demo
+        # Display the True-Color images in a single row
+        st.subheader("True-Color Images")
+        cols_true_color = st.columns(display_count)
+        
         for i in range(display_count):
             img_path = sat_files[i]
             try:
-                with cols[i]:
-                    if os.path.exists(img_path):
-                        # True-Color Composite (Simulated)
-                        # We are just loading the image as RGB for the demo to give a "true color" effect.
-                        img_rgb = Image.open(img_path).convert('RGB')
-                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
-                        
-                        # False-Color Flood Composite (Simulated)
-                        # Here, we simulate a false-color effect by inverting the image for visual contrast
-                        img_false_color = img_rgb.point(lambda p: 255 - p)
-                        st.image(img_false_color, caption=f"False-Color Composite {i+1}", use_container_width=True)
+                if os.path.exists(img_path):
+                    img_rgb = Image.open(img_path).convert('RGB')
+                    with cols_true_color[i]:
+                        st.image(img_rgb, caption=f"Sample {i+1}", use_container_width=True)
+            except Exception as e:
+                st.error(f"❌ Error loading image {i+1}: {str(e)}")
+
+        st.markdown("---")
+
+        # Display the False-Color composites in a separate row
+        st.subheader("False-Color Flood Composites")
+        cols_false_color = st.columns(display_count)
+        
+        for i in range(display_count):
+            img_path = sat_files[i]
+            try:
+                if os.path.exists(img_path):
+                    img_rgb = Image.open(img_path).convert('RGB')
+                    # This simulates a false-color effect for visualization purposes
+                    img_false_color = img_rgb.point(lambda p: 255 - p)
+                    with cols_false_color[i]:
+                        st.image(img_false_color, caption=f"Sample {i+1}", use_container_width=True)
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
