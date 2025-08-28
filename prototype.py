@@ -776,7 +776,7 @@ elif page == "🛰️ Satellite Analysis":
             processed_images = []
             processed_labels = []
             
-            num_images_to_process = min(150, len(sat_files))
+            num_images_to_process = min(100, len(sat_files))
             progress_bar = st.progress(0)
 
             for i, img_path in enumerate(sat_files[:num_images_to_process]):
