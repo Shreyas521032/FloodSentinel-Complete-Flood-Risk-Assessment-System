@@ -119,55 +119,38 @@ def load_datasets_actual():
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
             # Download the tabular flood prediction dataset
-            path_tabular = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
-            st.success(f"✅ Tabular data downloaded to: {path_tabular}")
+            path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
+            st.success(f"✅ Dataset 1 downloaded to: {path1}")
             
-            # Download the satellite imagery dataset
-            path_sat = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
-            st.success(f"✅ Satellite imagery data downloaded to: {path_sat}")
+            path2 = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
+            st.success(f"✅ Dataset 2 downloaded to: {path2}")
             
-            # Find and load the CSV file
-            flood_files = [os.path.join(root, file) for root, dirs, files in os.walk(path_tabular) for file in files if file.endswith('.csv')]
+            flood_files = []
+            for root, dirs, files in os.walk(path1):
+                for file in files:
+                    if file.endswith('.csv'):
+                        flood_files.append(os.path.join(root, file))
+            
             if flood_files:
                 df_flood = pd.read_csv(flood_files[0])
                 st.success(f"✅ Loaded flood prediction dataset with {len(df_flood)} records")
             else:
                 st.error("❌ No CSV files found in flood prediction dataset")
-                return None, []
-                
+                return None, None
+            
             sat_files = []
-            st.info("Unzipping satellite image data. This may take a moment...")
-            
-            # Find and unzip relevant zip files from the satellite dataset
-            for root, dirs, files in os.walk(path_sat):
+            for root, dirs, files in os.walk(path2):
                 for file in files:
-                    if file.endswith('.zip'):
-                        zip_path = os.path.join(root, file)
-                        try:
-                            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                                # Create a folder for extraction to avoid clutter
-                                extract_path = os.path.join(path_sat, file.replace('.zip', ''))
-                                zip_ref.extractall(extract_path)
-                                # Collect all image file paths from the extracted folder
-                                for sub_root, _, sub_files in os.walk(extract_path):
-                                    for img_file in sub_files:
-                                        if img_file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
-                                            sat_files.append(os.path.join(sub_root, img_file))
-                        except zipfile.BadZipFile:
-                            st.warning(f"⚠️ Corrupted zip file: {zip_path}")
-                        except Exception as e:
-                            st.error(f"❌ Error unzipping {zip_path}: {str(e)}")
+                    if file.endswith(('.jpg', '.png', '.tif')):
+                        sat_files.append(os.path.join(root, file))
             
-            if sat_files:
-                st.success(f"✅ Found and processed {len(sat_files)} satellite images!")
-            else:
-                st.warning("⚠️ No satellite images were found after unzipping.")
-                
+            st.success(f"✅ Found {len(sat_files)} satellite images")
+            
             return df_flood, sat_files
             
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
-        return None, []
+        return None, None
 # def load_datasets_actual():
 #     """Load datasets from Kaggle - NO WIDGETS"""
 #     try:
