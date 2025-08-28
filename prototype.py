@@ -305,10 +305,10 @@ elif page == "📊 Data Analysis":
     with col1:
         fig_hist = px.histogram(
             df, 
-            x=\'FloodProbability\',
+            x="FloodProbability",
             nbins=30,
             title="🎯 Flood Probability Distribution",
-            color_discrete_sequence=[\'#4facfe\']
+            color_discrete_sequence=["#4facfe"]
         )
         fig_hist.update_layout(bargap=0.1)
         st.plotly_chart(fig_hist, use_container_width=True)
@@ -316,15 +316,14 @@ elif page == "📊 Data Analysis":
     with col2:
         fig_box = px.box(
             df, 
-            y=\'FloodProbability\',
+            y="FloodProbability",
             title="📊 Flood Probability Box Plot",
-            color_discrete_sequence=[\'#fa709a\']
+            color_discrete_sequence=["#fa709a"]
         )
         st.plotly_chart(fig_box, use_container_width=True)
     
     st.markdown("#### 🎯 Top Features Analysis")
-    
-    correlations = df.corr(numeric_only=True)[\'FloodProbability\'].abs().sort_values(ascending=False)[1:]
+       correlations = df.corr(numeric_only=True)["FloodProbability"].abs().sort_values(ascending=False)[1:]
     
     fig_corr_bar = px.bar(
         x=correlations.values,
@@ -439,11 +438,11 @@ elif page == "⚙️ Model Training":
             if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"]:
                 model.fit(X_train_pca, y_train)
                 y_pred = model.predict(X_test_pca)
-                cv_scores = cross_val_score(model, X_train_pca, y_train, cv=cv_folds, scoring=\'r2\')
+                cv_scores = cross_val_score(model, X_train_pca, y_train, cv=cv_folds, scoring="r2")
             else:
                 model.fit(X_train_scaled, y_train)
                 y_pred = model.predict(X_test_scaled)
-                cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring=\'r2\')
+                cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring="r2")
 
             training_time = time.time() - start_time
             
@@ -453,15 +452,15 @@ elif page == "⚙️ Model Training":
             r2 = r2_score(y_test, y_pred)
             
             results[model_name] = {
-                \'MSE\': mse,
-                \'RMSE\': rmse,
-                \'MAE\': mae,
-                \'R²\': r2,
-                \'CV_Mean\': cv_scores.mean(),
-                \'CV_Std\': cv_scores.std(),
-                \'Training_Time\': training_time,
-                \'Model\': model,
-                \'Predictions\': y_pred
+                "MSE": mse,
+                "RMSE": rmse,
+                "MAE": mae,
+                "R²": r2,
+                "CV_Mean": cv_scores.mean(),
+                "CV_Std": cv_scores.std(),
+                "Training_Time": training_time,
+                "Model": model,
+                "Predictions": y_pred
             }
             
             progress_bar.progress((i + 1) / len(selected_models))
