@@ -445,6 +445,36 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
+    st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
+    
+    key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
+    if all(col in df.columns for col in key_factors) and 'FloodProbability' in df.columns:
+        fig_scatter = px.scatter_matrix(
+            df[key_factors + ['FloodProbability']],
+            dimensions=key_factors,
+            color='FloodProbability',
+            title='Pairwise Scatter Plot of Key Factors',
+            color_continuous_scale=px.colors.sequential.Plasma
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+    else:
+        st.info("The selected dataset does not contain all the required columns for this plot.")
+        
+    st.markdown("#### 🎯 Impact of Key Factors on Flood Probability")
+    
+    key_factors_for_box = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
+    if all(col in df.columns for col in key_factors_for_box) and 'FloodProbability' in df.columns:
+        df_melt = df.melt(id_vars=['FloodProbability'], value_vars=key_factors_for_box, var_name='Factor', value_name='Value')
+        fig_factors = px.box(
+            df_melt,
+            x='Factor',
+            y='FloodProbability',
+            color='Factor',
+            title='Impact of Key Factors on Flood Probability'
+        )
+        st.plotly_chart(fig_factors, use_container_width=True)
+    else:
+        st.info("The selected dataset does not contain all the required columns for this plot.")
 
 elif page == "⚙️ Model Training":
     st.markdown("### ⚙️ State-of-the-Art Model Training")
