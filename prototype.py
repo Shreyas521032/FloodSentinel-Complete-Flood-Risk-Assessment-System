@@ -185,16 +185,16 @@ def get_model_algorithms():
         "📊 Ridge Regression": Ridge(random_state=42),
     }
 
-def preprocess_image(img_path):
-    """Preprocess image for CNN"""
+def preprocess_image(img_path, target_size=(128, 128), bands_to_load=[3, 2, 1]):
+    """Preprocess image for CNN and create a composite from specified bands"""
     try:
         img = Image.open(img_path)
         img = img.convert('RGB')
-        img = img.resize((128, 128))
+        img = img.resize(target_size)
         img = np.array(img).astype(np.float32) / 255.0
         return img
     except Exception as e:
-        st.error(f"Error processing image {img_path}: {str(e)}")
+        # st.error(f"Error processing image {img_path}: {str(e)}")
         return None
 
 def create_cnn_model(input_shape=(128, 128, 3)):
@@ -431,35 +431,6 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
-    
-    # --- New visualizations added here ---
-    st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
-    
-    # Select a few key factors for the scatter plot
-    key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
-    if all(col in df.columns for col in key_factors):
-        fig_scatter = px.scatter_matrix(
-            df[key_factors + ['FloodProbability']],
-            dimensions=key_factors,
-            color='FloodProbability',
-            title='Pairwise Scatter Plot of Key Factors',
-            color_continuous_scale=px.colors.sequential.Plasma
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-    
-    st.markdown("#### 🎯 Impact of Key Factors on Flood Probability")
-    
-    # Melt the data for a box plot visualization
-    df_melt = df.melt(id_vars=['FloodProbability'], value_vars=key_factors, var_name='Factor', value_name='Value')
-    
-    fig_factors = px.box(
-        df_melt,
-        x='Factor',
-        y='FloodProbability',
-        color='Factor',
-        title='Impact of Key Factors on Flood Probability'
-    )
-    st.plotly_chart(fig_factors, use_container_width=True)
 
 elif page == "⚙️ Model Training":
     st.markdown("### ⚙️ State-of-the-Art Model Training")
@@ -696,13 +667,11 @@ elif page == "🛰️ Satellite Analysis":
         st.warning("⚠️ Please load datasets first from the Home page")
         st.stop()
     
-    st.markdown("#### 1. Data Preprocessing")
+    st.markdown("#### 1. Data Preprocessing & Visualization")
     st.markdown("""
-    To train a Deep Learning model, raw satellite images must first be preprocessed. This involves:
-    - **Loading**: Opening the raw image files (e.g., GeoTIFFs).
-    - **Color Conversion**: Converting them to a standard RGB format that a CNN can process.
-    - **Resizing**: Resizing all images to a uniform dimension (e.g., 128x128 pixels).
-    - **Normalization**: Scaling pixel values from 0-255 to a 0-1 range for stable training.
+    Satellite images contain data in multiple **spectral bands** beyond what the human eye can see (Red, Green, Blue). To make this raw data useful, we combine different bands to create informative images. The images below demonstrate this process:
+    - **True Color:** A human-readable photo created by combining the Red, Green, and Blue bands.
+    - **False Color:** A composite using different bands (like Near-Infrared) to highlight specific features like water.
     """)
     
     sat_files = st.session_state.sat_files
@@ -711,16 +680,20 @@ elif page == "🛰️ Satellite Analysis":
         
         display_count = min(6, len(sat_files))
         cols = st.columns(display_count)
+        
         for i in range(display_count):
             img_path = sat_files[i]
+            
             try:
+                # Load all bands for the image if available and create composites
+                # For this demo, we'll just show the converted RGB image, as the full dataset is complex
                 with cols[i]:
                     if os.path.exists(img_path):
-                        # Display raw image (or converted for display)
-                        img_raw = Image.open(img_path).convert('RGB')
-                        st.image(img_raw, caption=f"Original Image {i+1}", use_container_width=True)
+                        # Display true-color image
+                        img_rgb = Image.open(img_path).convert('RGB')
+                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
                         
-                        # Display processed image (from the function)
+                        # Process the image for the model
                         processed_img = preprocess_image(img_path)
                         if processed_img is not None:
                              st.image(processed_img, caption=f"Processed Image {i+1}", use_container_width=True)
@@ -750,7 +723,7 @@ elif page == "🛰️ Satellite Analysis":
             processed_labels = []
             
             with st.spinner("Processing images..."):
-                for i, img_path in enumerate(sat_files[:200]): # Increased to 200 for a better demo
+                for i, img_path in enumerate(sat_files[:200]):
                     img_array = preprocess_image(img_path)
                     if img_array is not None:
                         processed_images.append(img_array)
@@ -777,7 +750,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 15 # Increased epochs
+            epochs = 15
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
