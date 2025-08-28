@@ -725,8 +725,7 @@ elif page == "🛰️ Satellite Analysis":
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
         display_count = min(12, len(sat_files))
-
-        cols = st.columns(display_count)
+        cols_true = st.columns(display_count)
 
         # Simulating true and false color composites for the demo
         for i in range(display_count):
