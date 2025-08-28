@@ -194,7 +194,6 @@ def preprocess_image(img_path, target_size=(128, 128), bands_to_load=[3, 2, 1]):
         img = np.array(img).astype(np.float32) / 255.0
         return img
     except Exception as e:
-        # st.error(f"Error processing image {img_path}: {str(e)}")
         return None
 
 def create_cnn_model(input_shape=(128, 128, 3)):
@@ -232,7 +231,6 @@ def create_cnn_model(input_shape=(128, 128, 3)):
     
     return model
 
-# Create sample data function for demo purposes
 def create_sample_data():
     """Create sample flood prediction data for demonstration with global coordinates"""
     np.random.seed(42)
@@ -685,15 +683,11 @@ elif page == "🛰️ Satellite Analysis":
             img_path = sat_files[i]
             
             try:
-                # Load all bands for the image if available and create composites
-                # For this demo, we'll just show the converted RGB image, as the full dataset is complex
                 with cols[i]:
                     if os.path.exists(img_path):
-                        # Display true-color image
-                        img_rgb = Image.open(img_path).convert('RGB')
-                        st.image(img_rgb, caption=f"True Color Image {i+1}", use_container_width=True)
+                        img_raw = Image.open(img_path).convert('RGB')
+                        st.image(img_raw, caption=f"True Color Image {i+1}", use_container_width=True)
                         
-                        # Process the image for the model
                         processed_img = preprocess_image(img_path)
                         if processed_img is not None:
                              st.image(processed_img, caption=f"Processed Image {i+1}", use_container_width=True)
@@ -1050,3 +1044,7 @@ st.sidebar.info("""
 - 🎯 Interactive visualizations
 - 📈 Comprehensive performance analysis
 """)
+
+# --- New Footer Section ---
+st.markdown("---")
+st.markdown("<p style='text-align: center; color: #888; font-size: 0.9em;'>Crafted with love by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>", unsafe_allow_html=True)
