@@ -6,9 +6,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import seaborn as sns
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet, LogisticRegression
+from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
 from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.tree import DecisionTreeRegressor
@@ -138,18 +138,15 @@ def load_datasets_actual():
             sat_files = []
             st.info("Unzipping satellite image data. This may take a while...")
 
-            # Iterate through the downloaded directory to find zip files
             zip_paths = [os.path.join(root, file) for root, dirs, files in os.walk(path_sat) for file in files if file.endswith('.zip')]
 
             if not zip_paths:
                 st.warning("⚠️ No zip files found. Assuming data is already unzipped.")
-                # Fallback to searching the main directory if no zips are found
                 for root, dirs, files in os.walk(path_sat):
                     for file in files:
                         if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
                             sat_files.append(os.path.join(root, file))
             else:
-                # Unzip each archive and collect image paths
                 for zip_path in zip_paths:
                     try:
                         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -157,7 +154,6 @@ def load_datasets_actual():
                             zip_ref.extractall(extract_dir)
                             st.success(f"✅ Unzipped: {os.path.basename(zip_path)}")
                             
-                            # Collect image file paths from the extracted folder
                             for root, _, files in os.walk(extract_dir):
                                 for file in files:
                                     if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
@@ -178,95 +174,9 @@ def load_datasets_actual():
         st.error(f"❌ Error loading datasets: {str(e)}")
         return None, []
 
-# def load_datasets_actual():
-#     """Load datasets from Kaggle, including unzipping image data."""
-#     try:
-#         with st.spinner("🔄 Downloading datasets from Kaggle..."):
-#             # Download the tabular flood prediction dataset
-#             path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
-#             st.success(f"✅ Dataset 1 downloaded to: {path1}")
-            
-#             # Download the satellite imagery dataset
-#             path2 = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
-#             st.success(f"✅ Dataset 2 downloaded to: {path2}")
-            
-#             # Find and load the CSV file from the tabular dataset
-#             flood_files = []
-#             for root, dirs, files in os.walk(path1):
-#                 for file in files:
-#                     if file.endswith('.csv'):
-#                         flood_files.append(os.path.join(root, file))
-            
-#             if flood_files:
-#                 df_flood = pd.read_csv(flood_files[0])
-#                 st.success(f"✅ Loaded flood prediction dataset with {len(df_flood)} records")
-#             else:
-#                 st.error("❌ No CSV files found in flood prediction dataset")
-#                 return None, []
-            
-#             sat_files = []
-#             st.info("Unzipping satellite image data. This may take a moment...")
-            
-#             # Find and unzip relevant zip files from the satellite dataset
-#             for root, dirs, files in os.walk(path2):
-#                 for file in files:
-#                     if file.endswith('.zip'):
-#                         zip_path = os.path.join(root, file)
-#                         try:
-#                             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-#                                 # Create a folder for extraction
-#                                 extract_path = os.path.join(path2, os.path.splitext(file)[0])
-#                                 zip_ref.extractall(extract_path)
-#                                 # Collect image file paths from the extracted folder
-#                                 for sub_root, _, sub_files in os.walk(extract_path):
-#                                     for img_file in sub_files:
-#                                         if img_file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
-#                                             sat_files.append(os.path.join(sub_root, img_file))
-#                         except zipfile.BadZipFile:
-#                             st.warning(f"⚠️ Corrupted zip file: {zip_path}")
-#                         except Exception as e:
-#                             st.error(f"❌ Error unzipping {zip_path}: {str(e)}")
-            
-#             if sat_files:
-#                 st.success(f"✅ Found and processed {len(sat_files)} satellite images!")
-#             else:
-#                 st.warning("⚠️ No satellite images were found after unzipping.")
-                
-#             return df_flood, sat_files
-            
-#     except Exception as e:
-#         st.error(f"❌ Error loading datasets: {str(e)}")
-#         return None, []
-# def load_datasets_actual():
-#     """Load datasets from Kaggle - NO WIDGETS"""
-#     try:
-#         with st.spinner("🔄 Downloading datasets from Kaggle..."):
-#             path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
-#             st.success(f"✅ Dataset 1 downloaded to: {path1}")
-            
-#             path2 = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
-#             st.success(f"✅ Dataset 2 downloaded to: {path2}")
-            
-#             flood_files = []
-#             for root, dirs, files in os.walk(path1):
-#                 for file in files:
-#                     if file.endswith('.csv'):
-#                         flood_files.append(os.path.join(root, file))
-            
-#             if flood_files:
-#                 df_flood = pd.read_csv(flood_files[0])
-#                 st.success(f"✅ Loaded flood prediction dataset with {len(df_flood)} records")
-#                 return df_flood, []
-#             else:
-#                 st.error("❌ No CSV files found in flood prediction dataset")
-#                 return None, None
-            
-#     except Exception as e:
-#         st.error(f"❌ Error loading datasets: {str(e)}")
-#         return None, None
-
 def get_model_algorithms():
     """Get all state-of-the-art algorithms"""
+    # Exclude Logistic Regression as it's a classifier and the target is continuous
     return {
         "🌳 Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
         "🚀 XGBoost": xgb.XGBRegressor(random_state=42),
@@ -280,17 +190,16 @@ def get_model_algorithms():
         "🌿 Decision Tree": DecisionTreeRegressor(random_state=42),
         "👥 K-Neighbors": KNeighborsRegressor(n_neighbors=5),
         "📊 Ridge Regression": Ridge(random_state=42),
-        "➕ Logistic Regression": LogisticRegression(random_state=42)
     }
 
 def preprocess_image(img_path):
     """Preprocess image for CNN"""
     try:
-        img = cv2.imread(img_path)
-        if img is None:
-            return None
-        img = cv2.resize(img, (128, 128))
-        img = img.astype(np.float32) / 255.0
+        img = Image.open(img_path)
+        # Convert to RGB to handle multi-band TIFF files
+        img = img.convert('RGB')
+        img = img.resize((128, 128))
+        img = np.array(img).astype(np.float32) / 255.0
         return img
     except Exception as e:
         st.error(f"Error processing image {img_path}: {str(e)}")
@@ -359,13 +268,12 @@ def create_sample_data():
         'WetlandLoss': np.random.uniform(0.0, 1.0, n_samples),
         'InadequatePlanning': np.random.uniform(0.0, 1.0, n_samples),
         'PoliticalFactors': np.random.uniform(0.0, 1.0, n_samples),
-        'Latitude': np.random.uniform(8.0, 37.0, n_samples),  # India's latitude range
-        'Longitude': np.random.uniform(68.0, 97.0, n_samples)  # India's longitude range
+        'Latitude': np.random.uniform(8.0, 37.0, n_samples),
+        'Longitude': np.random.uniform(68.0, 97.0, n_samples)
     }
     
     df = pd.DataFrame(data)
     
-    # Create a realistic flood probability based on key factors
     df['FloodProbability'] = (
         0.3 * df['MonsoonIntensity'] +
         0.15 * df['ClimateChange'] +
@@ -374,10 +282,9 @@ def create_sample_data():
         0.1 * df['Deforestation'] +
         0.1 * df['Urbanization'] +
         0.05 * df['Siltation'] +
-        0.1 * np.random.uniform(0, 0.2, n_samples)  # Add some noise
+        0.1 * np.random.uniform(0, 0.2, n_samples)
     )
     
-    # Ensure values are between 0 and 1
     df['FloodProbability'] = np.clip(df['FloodProbability'], 0, 1)
     
     return df
@@ -432,7 +339,7 @@ if page == "🏠 Home":
     with col2:
         if st.button("📊 Use Sample Data", type="secondary", key="load_sample"):
             st.session_state.df_flood = create_sample_data()
-            st.session_state.sat_files = []  # No satellite files for sample data
+            st.session_state.sat_files = []
             st.session_state.dataset_loaded = True
             st.success("✅ Sample dataset loaded successfully!")
             st.rerun()
@@ -486,7 +393,6 @@ elif page == "📊 Data Analysis":
     
     st.markdown("#### 📈 Feature Distribution Analysis")
     
-    # Improved Correlation Heatmap
     corr_matrix = df.corr(numeric_only=True).round(2)
     fig_corr = px.imshow(corr_matrix, 
                          text_auto=True, 
@@ -538,14 +444,14 @@ elif page == "📊 Data Analysis":
     st.markdown("#### 🌍 Geographical Distribution of Flood Probability")
     if 'Latitude' in df.columns and 'Longitude' in df.columns and 'FloodProbability' in df.columns:
         fig_geo = px.scatter_mapbox(df, 
-                                    lat="Latitude", 
-                                    lon="Longitude", 
-                                    color="FloodProbability", 
-                                    size="FloodProbability",
-                                    color_continuous_scale=px.colors.sequential.Plasma,
-                                    zoom=1,
-                                    title="Geographical Distribution of Flood Probability",
-                                    mapbox_style="carto-positron")
+                                     lat="Latitude", 
+                                     lon="Longitude", 
+                                     color="FloodProbability", 
+                                     size="FloodProbability",
+                                     color_continuous_scale=px.colors.sequential.Plasma,
+                                     zoom=1,
+                                     title="Geographical Distribution of Flood Probability",
+                                     mapbox_style="carto-positron")
         fig_geo.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
         st.plotly_chart(fig_geo, use_container_width=True)
     else:
@@ -598,10 +504,8 @@ elif page == "⚙️ Model Training":
         X = df.drop("FloodProbability", axis=1)
         y = df["FloodProbability"]
         
-        # Preprocessing for tabular data
         categorical_cols = X.select_dtypes(include='object').columns
 
-        # Handle categorical columns (one-hot encoding)
         if len(categorical_cols) > 0:
             X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
 
@@ -619,7 +523,6 @@ elif page == "⚙️ Model Training":
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
 
-        # Apply PCA
         pca = PCA(n_components=min(10, X_train_scaled.shape[1]))
         X_train_pca = pca.fit_transform(X_train_scaled)
         X_test_pca = pca.transform(X_test_scaled)
@@ -637,7 +540,6 @@ elif page == "⚙️ Model Training":
             
             start_time = time.time()
             try:
-                # For models that can use PCA components, use them. Otherwise, use scaled data.
                 if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"]:
                     model.fit(X_train_pca, y_train)
                     y_pred = model.predict(X_test_pca)
@@ -699,7 +601,6 @@ elif page == "🔮 Predictions":
         
         col1, col2, col3 = st.columns(3)
         
-        # Create sliders based on actual column names from dataset
         input_values = {}
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         non_target_cols = [col for col in numeric_cols if col != 'FloodProbability']
@@ -721,10 +622,8 @@ elif page == "🔮 Predictions":
         submitted = st.form_submit_button("🔮 Get Prediction")
         
         if submitted:
-            # Create input dataframe
             input_data = pd.DataFrame([input_values])
             
-            # Ensure input_data has the same columns as X used for training
             training_cols = st.session_state.X_test.columns.tolist()
             input_data = input_data.reindex(columns=training_cols, fill_value=0)
 
@@ -735,8 +634,7 @@ elif page == "🔮 Predictions":
             predictions = {}
             for model_name, model_info in st.session_state.model_results.items():
                 try:
-                    # Use PCA transformed input if the model was trained with PCA
-                    if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"] and st.session_state.pca_components is not None:
+                    if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"]:
                         pca_input = np.dot(input_scaled, st.session_state.pca_components.T)
                         pred = model_info['Model'].predict(pca_input)[0]
                     else:
@@ -836,85 +734,25 @@ elif page == "🛰️ Satellite Analysis":
                 with cols[i % 4]:
                     if os.path.exists(img_path):
                         img = Image.open(img_path)
-                        # --- CORRECTED LINE BELOW ---
                         img = img.convert('RGB')
                         st.image(img, caption=f"Image {i+1}", use_container_width=True)
-                        # --- END CORRECTED LINE ---
                     else:
                         st.info(f"📁 Image {i+1} (Path: {os.path.basename(img_path)}) - File not found.")
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
-        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")  
-# elif page == "🛰️ Satellite Analysis":
-#     st.markdown("### 🛰️ Satellite Imagery Analysis")
+        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
     
-#     if not st.session_state.dataset_loaded:
-#         st.warning("⚠️ Please load datasets first from the Home page")
-#         st.stop()
-    
-#     st.markdown("#### 🖼️ Deep Learning for Satellite Imagery")
-    
-#     col1, col2 = st.columns(2)
-    
-#     with col1:
-#         st.markdown("""
-#         <div class="info-box">
-#             <h4>🧠 CNN Architecture</h4>
-#             <ul>
-#                 <li>Conv2D + BatchNorm + MaxPool layers</li>
-#                 <li>Progressive feature extraction (32→64→128→256)</li>
-#                 <li>Dense layers with dropout regularization</li>
-#                 <li>Sigmoid activation for binary classification</li>
-#             </ul>
-#         </div>
-#         """, unsafe_allow_html=True)
-    
-#     with col2:
-#         st.markdown("""
-#         <div class="success-box">
-#             <h4>📊 Model Features</h4>
-#             <ul>
-#                 <li>Input: 128x128x3 RGB images</li>
-#                 <li>Output: Flood probability (0-1)</li>
-#                 <li>Optimizer: Adam with learning rate 0.001</li>
-#                 <li>Loss: Binary crossentropy</li>
-#             </ul>
-#         </div>
-#         """, unsafe_allow_html=True)
-    
-#     st.markdown("#### 📸 Sample Satellite Images")
-    
-#     sat_files = st.session_state.sat_files
-#     if sat_files:
-#         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
-#         display_count = min(12, len(sat_files))
-#         cols = st.columns(4)
-#         for i in range(display_count):
-#             img_path = sat_files[i]
-#             try:
-#                 with cols[i % 4]:
-#                     if os.path.exists(img_path):
-#                         img = Image.open(img_path)
-#                         st.image(img, caption=f"Image {i+1}", use_column_width=True)
-#                     else:
-#                         st.info(f"📁 Image {i+1} (Path: {os.path.basename(img_path)}) - File not found.")
-#             except Exception as e:
-#                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
-#     else:
-#         st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
-
     st.markdown("#### 🚀 CNN Model Training")
     
     if st.button("🔄 Train CNN Model", type="primary", key="train_cnn"):
         if not sat_files:
             st.info("No real satellite images available. Creating synthetic image data for CNN demonstration...")
             
-            # Create synthetic image data for demonstration
             np.random.seed(42)
             num_samples = 200
             processed_images = np.random.rand(num_samples, 128, 128, 3).astype(np.float32)
-            processed_labels = np.random.choice([0.0, 1.0], num_samples, p=[0.6, 0.4])
+            processed_labels = np.random.choice([0, 1], num_samples, p=[0.6, 0.4])
         else:
             st.info("Preparing image data for CNN training. This may take a while...")
             
@@ -922,7 +760,7 @@ elif page == "🛰️ Satellite Analysis":
             processed_labels = []
             
             with st.spinner("Processing images..."):
-                for i, img_path in enumerate(sat_files[:100]):  # Limit to 100 images for demo
+                for i, img_path in enumerate(sat_files[:100]):
                     img_array = preprocess_image(img_path)
                     if img_array is not None:
                         processed_images.append(img_array)
@@ -953,10 +791,22 @@ elif page == "🛰️ Satellite Analysis":
             
             st.markdown("##### 📈 Training Progress")
             
-            epochs = 5  # Reduced for faster demo
+            epochs = 5
+            
+            # Using ImageDataGenerator for data augmentation
+            datagen = ImageDataGenerator(
+                rotation_range=20,
+                width_shift_range=0.2,
+                height_shift_range=0.2,
+                shear_range=0.2,
+                zoom_range=0.2,
+                horizontal_flip=True,
+                fill_mode='nearest'
+            )
             
             history = cnn_model.fit(
-                X_train_cnn, y_train_cnn,
+                datagen.flow(X_train_cnn, y_train_cnn, batch_size=32),
+                steps_per_epoch=len(X_train_cnn) / 32,
                 epochs=epochs,
                 validation_data=(X_val_cnn, y_val_cnn),
                 verbose=0
@@ -1224,7 +1074,6 @@ elif page == "📈 Results Dashboard":
                         importances = model.feature_importances_
                         feature_names_for_importance = st.session_state.X_test.columns
                     else:
-                        # Model was trained on PCA components
                         importances = model.feature_importances_
                         feature_names_for_importance = [f'PC_{i+1}' for i in range(len(importances))]
                 else:
