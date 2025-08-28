@@ -812,7 +812,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 10
+            epochs = 25
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
