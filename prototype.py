@@ -1049,7 +1049,6 @@ st.sidebar.info("""
 st.markdown("""
     <style>
         .footer {
-            position: fixed;
             left: 0;
             bottom: 0;
             width: 100%;
@@ -1059,6 +1058,10 @@ st.markdown("""
             padding: 10px;
             font-size: 0.9em;
             transition: background-color 0.3s, color 0.3s;
+        }
+        .footer:hover {
+            background-color: #f0f2f6; /* Lighter background on hover */
+            color: #2a5298; /* Darker text on hover */
         }
     </style>
     <div class="footer">
