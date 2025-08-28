@@ -1110,7 +1110,6 @@ st.markdown("""
             font-size: 0.9em;
             transition: background-color 0.3s, color 0.3s;
         }
-
         .footer:hover {
             background-color: #f0f2f6;
             color: #2a5298;
