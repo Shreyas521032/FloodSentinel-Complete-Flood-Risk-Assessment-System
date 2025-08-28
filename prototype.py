@@ -787,9 +787,8 @@ elif page == "🔮 Predictions":
                 fig_pred.update_layout(height=400)
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-  elif page == "🛰️ Satellite Analysis":
+elif page == "🛰️ Satellite Analysis":
     st.markdown("### 🛰️ Satellite Imagery Analysis")
-    
     if not st.session_state.dataset_loaded:
         st.warning("⚠️ Please load datasets first from the Home page")
         st.stop()
