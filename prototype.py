@@ -722,7 +722,7 @@ elif page == "🛰️ Satellite Analysis":
     if sat_files:
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
-        display_count = min(6, len(sat_files))
+        display_count = min(12, len(sat_files))
         cols = st.columns(display_count)
         
         # Simulating true and false color composites for the demo
@@ -767,7 +767,7 @@ elif page == "🛰️ Satellite Analysis":
             processed_labels = []
             
             with st.spinner("Processing images..."):
-                for i, img_path in enumerate(sat_files[:200]):
+                for i, img_path in enumerate(sat_files[:1000]):
                     img_array = preprocess_image(img_path)
                     if img_array is not None:
                         processed_images.append(img_array)
@@ -794,7 +794,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 15
+            epochs = 30
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
