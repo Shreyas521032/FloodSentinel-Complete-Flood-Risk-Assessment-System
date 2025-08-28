@@ -100,6 +100,10 @@ if 'X_test_scaled' not in st.session_state:
     st.session_state.X_test_scaled = None
 if 'pca_components' not in st.session_state:
     st.session_state.pca_components = None
+if 'df_flood' not in st.session_state:
+    st.session_state.df_flood = None
+if 'sat_files' not in st.session_state:
+    st.session_state.sat_files = []
 
 st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
@@ -110,9 +114,8 @@ page = st.sidebar.selectbox(
     ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
 
-@st.cache_data
-def load_datasets():
-    """Load datasets from Kaggle"""
+def load_datasets_actual():
+    """Load datasets from Kaggle - NO WIDGETS"""
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
             path1 = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
@@ -130,34 +133,14 @@ def load_datasets():
             if flood_files:
                 df_flood = pd.read_csv(flood_files[0])
                 st.success(f"✅ Loaded flood prediction dataset with {len(df_flood)} records")
+                return df_flood, []
             else:
                 st.error("❌ No CSV files found in flood prediction dataset")
-                return None, None            
-            # sat_files = []
-            # sat_image_dir = '/home/ubuntu/upload/satellite_images'
-            # if os.path.exists(sat_image_dir):
-            #     for root, dirs, files in os.walk(sat_image_dir):
-            #         for file in files:
-            #             if file.endswith(('.jpg', '.png', '.tif')):
-            #                 sat_files.append(os.path.join(root, file))
-            #     st.success(f"✅ Found {len(sat_files)} satellite images in {sat_image_dir}")
-            # else:
-            #     st.warning(f"⚠️ Satellite image directory not found at {sat_image_dir}. Using dummy data.")
-            
-            # return df_flood, sat_files
+                return None, None
             
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
         return None, None
-    if st.button("🔄 Load Datasets", type="primary"):
-        df_flood, sat_files = load_datasets()
-        if df_flood is not None:
-            st.session_state.df_flood = df_flood
-            st.session_state.sat_files = sat_files
-            st.session_state.dataset_loaded = True
-            st.success("✅ Datasets loaded successfully!")
-        else:
-            st.error("❌ Failed to load datasets")
 
 def get_model_algorithms():
     """Get all state-of-the-art algorithms"""
@@ -225,18 +208,56 @@ def create_cnn_model(input_shape=(128, 128, 3)):
     
     return model
 
-# Load dataset on startup
-# def initialize_app():
-#     if not st.session_state.dataset_loaded:
-#         if os.path.exists("/home/ubuntu/upload/flood_dataset.csv"):
-#             df_flood = pd.read_csv("/home/ubuntu/upload/flood_dataset.csv")
-#             st.session_state.df_flood = df_flood
-#             st.session_state.dataset_loaded = True
-#             st.session_state.sat_files = []
-#         else:
-#             st.error("Dataset file not found. Please ensure the flood dataset is available.")
-
-# initialize_app()
+# Create sample data function for demo purposes
+def create_sample_data():
+    """Create sample flood prediction data for demonstration"""
+    np.random.seed(42)
+    n_samples = 1000
+    
+    # Generate synthetic flood prediction dataset
+    data = {
+        'MonsoonIntensity': np.random.uniform(0.1, 1.0, n_samples),
+        'TopographyDrainage': np.random.uniform(0.0, 1.0, n_samples),
+        'RiverManagement': np.random.uniform(0.0, 1.0, n_samples),
+        'Deforestation': np.random.uniform(0.0, 1.0, n_samples),
+        'Urbanization': np.random.uniform(0.0, 1.0, n_samples),
+        'ClimateChange': np.random.uniform(0.0, 1.0, n_samples),
+        'DamsQuality': np.random.uniform(0.0, 1.0, n_samples),
+        'Siltation': np.random.uniform(0.0, 1.0, n_samples),
+        'AgriculturalPractices': np.random.uniform(0.0, 1.0, n_samples),
+        'Encroachments': np.random.uniform(0.0, 1.0, n_samples),
+        'IneffectiveDisasterPreparedness': np.random.uniform(0.0, 1.0, n_samples),
+        'DrainageSystems': np.random.uniform(0.0, 1.0, n_samples),
+        'CoastalVulnerability': np.random.uniform(0.0, 1.0, n_samples),
+        'Landslides': np.random.uniform(0.0, 1.0, n_samples),
+        'Watersheds': np.random.uniform(0.0, 1.0, n_samples),
+        'DeterioratingInfrastructure': np.random.uniform(0.0, 1.0, n_samples),
+        'PopulationScore': np.random.uniform(0.0, 1.0, n_samples),
+        'WetlandLoss': np.random.uniform(0.0, 1.0, n_samples),
+        'InadequatePlanning': np.random.uniform(0.0, 1.0, n_samples),
+        'PoliticalFactors': np.random.uniform(0.0, 1.0, n_samples),
+        'Latitude': np.random.uniform(8.0, 37.0, n_samples),  # India's latitude range
+        'Longitude': np.random.uniform(68.0, 97.0, n_samples)  # India's longitude range
+    }
+    
+    df = pd.DataFrame(data)
+    
+    # Create a realistic flood probability based on key factors
+    df['FloodProbability'] = (
+        0.3 * df['MonsoonIntensity'] +
+        0.15 * df['ClimateChange'] +
+        0.1 * (1 - df['RiverManagement']) +
+        0.1 * (1 - df['DamsQuality']) +
+        0.1 * df['Deforestation'] +
+        0.1 * df['Urbanization'] +
+        0.05 * df['Siltation'] +
+        0.1 * np.random.uniform(0, 0.2, n_samples)  # Add some noise
+    )
+    
+    # Ensure values are between 0 and 1
+    df['FloodProbability'] = np.clip(df['FloodProbability'], 0, 1)
+    
+    return df
 
 if page == "🏠 Home":
     st.markdown("### 🎯 Project Overview")
@@ -271,15 +292,31 @@ if page == "🏠 Home":
             </ul>
         </div>
         """, unsafe_allow_html=True)
-    if st.button("🔄 Load Datasets", type="primary"):
-        df_flood, sat_files = load_datasets()
-        if df_flood is not None:
-            st.session_state.df_flood = df_flood
-            st.session_state.sat_files = sat_files
+    
+    st.markdown("### 📊 Dataset Loading")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Load from Kaggle", type="primary", key="load_kaggle"):
+            df_flood, sat_files = load_datasets_actual()
+            if df_flood is not None:
+                st.session_state.df_flood = df_flood
+                st.session_state.sat_files = sat_files
+                st.session_state.dataset_loaded = True
+                st.rerun()
+    
+    with col2:
+        if st.button("📊 Use Sample Data", type="secondary", key="load_sample"):
+            st.session_state.df_flood = create_sample_data()
+            st.session_state.sat_files = []  # No satellite files for sample data
             st.session_state.dataset_loaded = True
-            st.success("✅ Datasets loaded successfully!")
-        else:
-            st.error("❌ Failed to load datasets")
+            st.success("✅ Sample dataset loaded successfully!")
+            st.rerun()
+    
+    if st.session_state.dataset_loaded:
+        st.success(f"✅ Dataset loaded with {len(st.session_state.df_flood)} records!")
+        st.dataframe(st.session_state.df_flood.head(), use_container_width=True)
 
 elif page == "📊 Data Analysis":
     st.markdown("### 📊 Exploratory Data Analysis")
@@ -391,76 +428,6 @@ elif page == "📊 Data Analysis":
     else:
         st.info("Latitude, Longitude, or FloodProbability columns not found for geographical plot.")
 
-    st.markdown("#### 📈 Pair Plot of Key Features")
-    selected_features = st.multiselect(
-        "Select features for Pair Plot:",
-        df.columns.tolist(),
-        default=["MonsoonIntensity", "DamsQuality", "RiverManagement", "FloodProbability"] if all(col in df.columns for col in ["MonsoonIntensity", "DamsQuality", "RiverManagement", "FloodProbability"]) else df.columns[:4].tolist()
-    )
-    if len(selected_features) > 1:
-        try:
-            fig_pair = sns.pairplot(df[selected_features], diag_kind="kde")
-            st.pyplot(fig_pair)
-        except Exception as e:
-            st.error(f"Error creating pair plot: {str(e)}")
-    else:
-        st.info("Please select at least two features for the Pair Plot.")
-
-    st.markdown("#### ⏳ Time Series Analysis (if applicable)")
-    if "Date" in df.columns:
-        try:
-            df["Date"] = pd.to_datetime(df["Date"])
-            df_time = df.sort_values("Date")
-            fig_time = px.line(df_time, x="Date", y="FloodProbability", title="Flood Probability Over Time")
-            st.plotly_chart(fig_time, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error creating time series plot: {str(e)}")
-    else:
-        st.info("No 'Date' column found for time series analysis.")
-
-    st.markdown("#### 📊 Individual Feature Distributions")
-    selected_dist_feature = st.selectbox(
-        "Select a feature to view its distribution:",
-        df.columns.tolist()
-    )
-    if selected_dist_feature:
-        try:
-            fig_dist = px.histogram(df, x=selected_dist_feature, marginal="box", title=f"Distribution of {selected_dist_feature}")
-            st.plotly_chart(fig_dist, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error creating distribution plot: {str(e)}")
-
-    st.markdown("#### 📈 Scatter Plot Matrix")
-    selected_scatter_features = st.multiselect(
-        "Select features for Scatter Plot Matrix:",
-        df.columns.tolist(),
-        default=["MonsoonIntensity", "DamsQuality", "FloodProbability"] if all(col in df.columns for col in ["MonsoonIntensity", "DamsQuality", "FloodProbability"]) else df.columns[:3].tolist()
-    )
-    if len(selected_scatter_features) > 1:
-        try:
-            fig_scatter_matrix = px.scatter_matrix(df, dimensions=selected_scatter_features, color="FloodProbability" if "FloodProbability" in df.columns else None)
-            st.plotly_chart(fig_scatter_matrix, use_container_width=True)
-        except Exception as e:
-            st.error(f"Error creating scatter matrix: {str(e)}")
-    else:
-        st.info("Please select at least two features for the Scatter Plot Matrix.")
-
-    st.markdown("#### 🎻 Violin Plot of Flood Probability by Category")
-    categorical_cols = df.select_dtypes(include='object').columns.tolist()
-    if categorical_cols:
-        selected_categorical_feature = st.selectbox(
-            "Select a categorical feature:",
-            categorical_cols
-        )
-        if selected_categorical_feature and "FloodProbability" in df.columns:
-            try:
-                fig_violin = px.violin(df, x=selected_categorical_feature, y="FloodProbability", box=True, points="all", title=f"Flood Probability by {selected_categorical_feature}")
-                st.plotly_chart(fig_violin, use_container_width=True)
-            except Exception as e:
-                st.error(f"Error creating violin plot: {str(e)}")
-    else:
-        st.info("No categorical features found for violin plot.")
-
 elif page == "⚙️ Model Training":
     st.markdown("### ⚙️ State-of-the-Art Model Training")
     
@@ -500,7 +467,7 @@ elif page == "⚙️ Model Training":
         default=list(models.keys())[:6]
     )
     
-    if st.button("🚀 Train Models", type="primary"):
+    if st.button("🚀 Train Models", type="primary", key="train_models"):
         if not selected_models:
             st.error("❌ Please select at least one model")
             st.stop()
@@ -753,36 +720,41 @@ elif page == "🛰️ Satellite Analysis":
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
-        st.info("No satellite images found or loaded.")
+        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
 
     st.markdown("#### 🚀 CNN Model Training")
     
-    if st.button("🔄 Train CNN Model", type="primary"):
+    if st.button("🔄 Train CNN Model", type="primary", key="train_cnn"):
         if not sat_files:
-            st.error("❌ No satellite images available for training.")
-            st.stop()
+            st.info("No real satellite images available. Creating synthetic image data for CNN demonstration...")
+            
+            # Create synthetic image data for demonstration
+            np.random.seed(42)
+            num_samples = 200
+            processed_images = np.random.rand(num_samples, 128, 128, 3).astype(np.float32)
+            processed_labels = np.random.choice([0.0, 1.0], num_samples, p=[0.6, 0.4])
+        else:
+            st.info("Preparing image data for CNN training. This may take a while...")
+            
+            processed_images = []
+            processed_labels = []
+            
+            with st.spinner("Processing images..."):
+                for i, img_path in enumerate(sat_files[:100]):  # Limit to 100 images for demo
+                    img_array = preprocess_image(img_path)
+                    if img_array is not None:
+                        processed_images.append(img_array)
+                        processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
+                    
+                    if i % 10 == 0:
+                        st.progress(i / min(100, len(sat_files)))
+            
+            if not processed_images:
+                st.error("❌ No images were successfully processed for CNN training.")
+                st.stop()
 
-        st.info("Preparing image data for CNN training. This may take a while...")
-        
-        processed_images = []
-        processed_labels = []
-        
-        with st.spinner("Processing images..."):
-            for i, img_path in enumerate(sat_files[:100]):  # Limit to 100 images for demo
-                img_array = preprocess_image(img_path)
-                if img_array is not None:
-                    processed_images.append(img_array)
-                    processed_labels.append(1.0 if 'flood' in img_path.lower() else 0.0)
-                
-                if i % 10 == 0:
-                    st.progress(i / min(100, len(sat_files)))
-        
-        if not processed_images:
-            st.error("❌ No images were successfully processed for CNN training.")
-            st.stop()
-
-        processed_images = np.array(processed_images)
-        processed_labels = np.array(processed_labels)
+            processed_images = np.array(processed_images)
+            processed_labels = np.array(processed_labels)
         
         X_train_cnn, X_val_cnn, y_train_cnn, y_val_cnn = train_test_split(
             processed_images, processed_labels, test_size=0.2, random_state=42
@@ -799,7 +771,7 @@ elif page == "🛰️ Satellite Analysis":
             
             st.markdown("##### 📈 Training Progress")
             
-            epochs = 10
+            epochs = 5  # Reduced for faster demo
             
             history = cnn_model.fit(
                 X_train_cnn, y_train_cnn,
@@ -1065,9 +1037,14 @@ elif page == "📈 Results Dashboard":
             if importance_model:
                 model = results[importance_model]['Model']
                 
-                if hasattr(model, 'feature_importances_') and len(model.feature_importances_) == len(st.session_state.X_test.columns):
-                    importances = model.feature_importances_
-                    feature_names_for_importance = st.session_state.X_test.columns
+                if hasattr(model, 'feature_importances_') and len(model.feature_importances_) <= len(st.session_state.X_test.columns):
+                    if len(model.feature_importances_) == len(st.session_state.X_test.columns):
+                        importances = model.feature_importances_
+                        feature_names_for_importance = st.session_state.X_test.columns
+                    else:
+                        # Model was trained on PCA components
+                        importances = model.feature_importances_
+                        feature_names_for_importance = [f'PC_{i+1}' for i in range(len(importances))]
                 else:
                     importances = np.random.rand(len(st.session_state.X_test.columns))
                     feature_names_for_importance = st.session_state.X_test.columns
@@ -1094,7 +1071,7 @@ elif page == "📈 Results Dashboard":
         
         st.markdown("#### 💾 Export Results")
         
-        if st.button("📥 Download Results", type="secondary"):
+        if st.button("📥 Download Results", type="secondary", key="download_results"):
             results_json = {}
             for model_name, metrics in results.items():
                 results_json[model_name] = {
