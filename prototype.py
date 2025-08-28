@@ -1045,6 +1045,28 @@ st.sidebar.info("""
 - 📈 Comprehensive performance analysis
 """)
 
-# --- New Footer Section ---
-st.markdown("---")
-st.markdown("<p style='text-align: center; color: #888; font-size: 0.9em;'>Crafted with love by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>", unsafe_allow_html=True)
+# --- New Footer Section with interactive styling ---
+st.markdown("""
+    <style>
+        .footer {
+            position: fixed;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            background-color: transparent;
+            color: #888;
+            text-align: center;
+            padding: 10px;
+            font-size: 0.9em;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .footer:hover {
+            background-color: #f0f2f6; /* Lighter background on hover */
+            color: #2a5298; /* Darker text on hover */
+        }
+    </style>
+    <div class="footer">
+        <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>
+    </div>
+""", unsafe_allow_html=True)
