@@ -787,7 +787,7 @@ elif page == "🔮 Predictions":
                 fig_pred.update_layout(height=400)
                 st.plotly_chart(fig_pred, use_container_width=True)
 
-elif page == "🛰️ Satellite Analysis":
+  elif page == "🛰️ Satellite Analysis":
     st.markdown("### 🛰️ Satellite Imagery Analysis")
     
     if not st.session_state.dataset_loaded:
@@ -837,13 +837,73 @@ elif page == "🛰️ Satellite Analysis":
                 with cols[i % 4]:
                     if os.path.exists(img_path):
                         img = Image.open(img_path)
-                        st.image(img, caption=f"Image {i+1}", use_column_width=True)
+                        # --- CORRECTED LINE BELOW ---
+                        img = img.convert('RGB')
+                        st.image(img, caption=f"Image {i+1}", use_container_width=True)
+                        # --- END CORRECTED LINE ---
                     else:
                         st.info(f"📁 Image {i+1} (Path: {os.path.basename(img_path)}) - File not found.")
             except Exception as e:
                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
     else:
-        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
+        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")  
+# elif page == "🛰️ Satellite Analysis":
+#     st.markdown("### 🛰️ Satellite Imagery Analysis")
+    
+#     if not st.session_state.dataset_loaded:
+#         st.warning("⚠️ Please load datasets first from the Home page")
+#         st.stop()
+    
+#     st.markdown("#### 🖼️ Deep Learning for Satellite Imagery")
+    
+#     col1, col2 = st.columns(2)
+    
+#     with col1:
+#         st.markdown("""
+#         <div class="info-box">
+#             <h4>🧠 CNN Architecture</h4>
+#             <ul>
+#                 <li>Conv2D + BatchNorm + MaxPool layers</li>
+#                 <li>Progressive feature extraction (32→64→128→256)</li>
+#                 <li>Dense layers with dropout regularization</li>
+#                 <li>Sigmoid activation for binary classification</li>
+#             </ul>
+#         </div>
+#         """, unsafe_allow_html=True)
+    
+#     with col2:
+#         st.markdown("""
+#         <div class="success-box">
+#             <h4>📊 Model Features</h4>
+#             <ul>
+#                 <li>Input: 128x128x3 RGB images</li>
+#                 <li>Output: Flood probability (0-1)</li>
+#                 <li>Optimizer: Adam with learning rate 0.001</li>
+#                 <li>Loss: Binary crossentropy</li>
+#             </ul>
+#         </div>
+#         """, unsafe_allow_html=True)
+    
+#     st.markdown("#### 📸 Sample Satellite Images")
+    
+#     sat_files = st.session_state.sat_files
+#     if sat_files:
+#         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
+#         display_count = min(12, len(sat_files))
+#         cols = st.columns(4)
+#         for i in range(display_count):
+#             img_path = sat_files[i]
+#             try:
+#                 with cols[i % 4]:
+#                     if os.path.exists(img_path):
+#                         img = Image.open(img_path)
+#                         st.image(img, caption=f"Image {i+1}", use_column_width=True)
+#                     else:
+#                         st.info(f"📁 Image {i+1} (Path: {os.path.basename(img_path)}) - File not found.")
+#             except Exception as e:
+#                 st.error(f"❌ Error loading image {i+1}: {str(e)}")
+#     else:
+#         st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
 
     st.markdown("#### 🚀 CNN Model Training")
     
