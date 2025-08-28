@@ -271,6 +271,15 @@ if page == "🏠 Home":
             </ul>
         </div>
         """, unsafe_allow_html=True)
+    if st.button("🔄 Load Datasets", type="primary"):
+        df_flood, sat_files = load_datasets()
+        if df_flood is not None:
+            st.session_state.df_flood = df_flood
+            st.session_state.sat_files = sat_files
+            st.session_state.dataset_loaded = True
+            st.success("✅ Datasets loaded successfully!")
+        else:
+            st.error("❌ Failed to load datasets")
 
 elif page == "📊 Data Analysis":
     st.markdown("### 📊 Exploratory Data Analysis")
