@@ -218,17 +218,17 @@ def create_cnn_model(input_shape=(128, 128, 3)):
     return model
 
 # Load dataset on startup
-def initialize_app():
-    if not st.session_state.dataset_loaded:
-        if os.path.exists("/home/ubuntu/upload/flood_dataset.csv"):
-            df_flood = pd.read_csv("/home/ubuntu/upload/flood_dataset.csv")
-            st.session_state.df_flood = df_flood
-            st.session_state.dataset_loaded = True
-            st.session_state.sat_files = []
-        else:
-            st.error("Dataset file not found. Please ensure the flood dataset is available.")
+# def initialize_app():
+#     if not st.session_state.dataset_loaded:
+#         if os.path.exists("/home/ubuntu/upload/flood_dataset.csv"):
+#             df_flood = pd.read_csv("/home/ubuntu/upload/flood_dataset.csv")
+#             st.session_state.df_flood = df_flood
+#             st.session_state.dataset_loaded = True
+#             st.session_state.sat_files = []
+#         else:
+#             st.error("Dataset file not found. Please ensure the flood dataset is available.")
 
-initialize_app()
+# initialize_app()
 
 if page == "🏠 Home":
     st.markdown("### 🎯 Project Overview")
