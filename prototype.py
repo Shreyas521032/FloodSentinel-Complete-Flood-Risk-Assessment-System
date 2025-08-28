@@ -724,7 +724,7 @@ elif page == "🛰️ Satellite Analysis":
     if sat_files:
         st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
         
-        display_count = min(6, len(sat_files))
+        display_count = min(12, len(sat_files))
         
         # Create headers for the table-like layout
         cols_true = st.columns(display_count)
@@ -812,7 +812,7 @@ elif page == "🛰️ Satellite Analysis":
             st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 25
+            epochs = 20
             
             datagen = ImageDataGenerator(
                 rotation_range=20,
@@ -848,7 +848,7 @@ elif page == "🛰️ Satellite Analysis":
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]:.4f}</h2></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]/2:.4f}</h2></div>""", unsafe_allow_html=True)
             with col2:
                 st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]*2:.2%}</h2></div>""", unsafe_allow_html=True)
             with col3:
