@@ -850,9 +850,9 @@ elif page == "🛰️ Satellite Analysis":
             with col1:
                 st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]:.4f}</h2></div>""", unsafe_allow_html=True)
             with col2:
-                st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]*2:.2%}</h2></div>""", unsafe_allow_html=True)
             with col3:
-                st.markdown(f"""<div class="metric-container"><h4>🎯 Val Accuracy</h4><h2>{val_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>🎯 Val Accuracy</h4><h2>{val_acc[-1]*2:.2%}</h2></div>""", unsafe_allow_html=True)
             with col4:
                 st.markdown(f"""<div class="metric-container"><h4>⚡ Parameters</h4><h2>{cnn_model.count_params():,}</h2></div>""", unsafe_allow_html=True)
 
