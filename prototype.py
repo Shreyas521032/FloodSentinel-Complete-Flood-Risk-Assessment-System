@@ -134,14 +134,14 @@ def load_datasets():
                 st.error("❌ No CSV files found in flood prediction dataset")
                 return None, None
             if st.button("🔄 Load Datasets", type="primary"):
-        df_flood, sat_files = load_datasets()
-        if df_flood is not None:
-            st.session_state.df_flood = df_flood
-            st.session_state.sat_files = sat_files
-            st.session_state.dataset_loaded = True
-            st.success("✅ Datasets loaded successfully!")
-        else:
-            st.error("❌ Failed to load datasets")
+                df_flood, sat_files = load_datasets()
+                if df_flood is not None:
+                    st.session_state.df_flood = df_flood
+                    st.session_state.sat_files = sat_files
+                    st.session_state.dataset_loaded = True
+                    st.success("✅ Datasets loaded successfully!")
+                else:
+                    st.error("❌ Failed to load datasets")
 
             
             # sat_files = []
