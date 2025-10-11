@@ -129,7 +129,6 @@ page = st.sidebar.selectbox(
     "Choose a section:",
     ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
-st.sidebar.markdown("---") 
 st.sidebar.link_button(
     "🌐 Ask the Sentinel Chatbot", 
     "https://flood-app-repo-chatbot-sck.streamlit.app/", 
