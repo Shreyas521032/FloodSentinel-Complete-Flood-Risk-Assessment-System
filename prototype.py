@@ -129,6 +129,14 @@ page = st.sidebar.selectbox(
     "Choose a section:",
     ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
 )
+st.sidebar.markdown("---") 
+st.sidebar.link_button(
+    "💬 Ask the Sentinel Chatbot", 
+    "https://sck-floodsentinel-complete-flood-risk-assessment-system.streamlit.app/", 
+    type="secondary", 
+    help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
+)
+
 
 @st.cache_resource
 def load_datasets_actual():
