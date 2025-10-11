@@ -131,8 +131,8 @@ page = st.sidebar.selectbox(
 )
 st.sidebar.markdown("---") 
 st.sidebar.link_button(
-    "💬 Ask the Sentinel Chatbot", 
-    "https://sck-floodsentinel-complete-flood-risk-assessment-system.streamlit.app/", 
+    "🌐 Ask the Sentinel Chatbot", 
+    "https://flood-app-repo-chatbot-sck.streamlit.app/", 
     type="secondary", 
     help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
 )
