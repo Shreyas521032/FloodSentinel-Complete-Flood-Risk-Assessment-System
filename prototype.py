@@ -151,73 +151,120 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
     
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        st.info(f"🖥️ Using device: {device}")
         
         # Load ResNet
         resnet_path = os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz")
         if os.path.exists(resnet_path):
+            st.info("📦 Decompressing ResNet model...")
             decompressed = decompress_model(resnet_path)
             if decompressed:
-                resnet = torch_models.resnet50(pretrained=False)
-                resnet.fc = nn.Linear(resnet.fc.in_features, 2)
-                resnet.load_state_dict(torch.load(decompressed, map_location=device))
-                resnet.to(device)
-                resnet.eval()
-                loaded_models['resnet'] = resnet
-                os.unlink(decompressed)
-                st.success("✅ ResNet-50 loaded")
+                try:
+                    resnet = torch_models.resnet50(pretrained=False)
+                    resnet.fc = nn.Linear(resnet.fc.in_features, 2)
+                    resnet.load_state_dict(torch.load(decompressed, map_location=device))
+                    resnet.to(device)
+                    resnet.eval()
+                    loaded_models['resnet'] = resnet
+                    os.unlink(decompressed)
+                    st.success("✅ ResNet-50 loaded successfully")
+                except Exception as e:
+                    st.error(f"❌ Error loading ResNet: {str(e)}")
+        else:
+            st.warning(f"⚠️ ResNet model not found at {resnet_path}")
         
         # Load DenseNet
         densenet_path = os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz")
         if os.path.exists(densenet_path):
+            st.info("📦 Decompressing DenseNet model...")
             decompressed = decompress_model(densenet_path)
             if decompressed:
-                densenet = torch_models.densenet121(pretrained=False)
-                densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
-                densenet.load_state_dict(torch.load(decompressed, map_location=device))
-                densenet.to(device)
-                densenet.eval()
-                loaded_models['densenet'] = densenet
-                os.unlink(decompressed)
-                st.success("✅ DenseNet-121 loaded")
+                try:
+                    densenet = torch_models.densenet121(pretrained=False)
+                    densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
+                    densenet.load_state_dict(torch.load(decompressed, map_location=device))
+                    densenet.to(device)
+                    densenet.eval()
+                    loaded_models['densenet'] = densenet
+                    os.unlink(decompressed)
+                    st.success("✅ DenseNet-121 loaded successfully")
+                except Exception as e:
+                    st.error(f"❌ Error loading DenseNet: {str(e)}")
+        else:
+            st.warning(f"⚠️ DenseNet model not found at {densenet_path}")
         
         # Load ViT
         vit_path = os.path.join(models_dir, "model_compressed.pth.gz")
         if os.path.exists(vit_path):
+            st.info("📦 Decompressing Vision Transformer model...")
             decompressed = decompress_model(vit_path)
             if decompressed:
-                vit = timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
-                vit.load_state_dict(torch.load(decompressed, map_location=device))
-                vit.to(device)
-                vit.eval()
-                loaded_models['vit'] = vit
-                os.unlink(decompressed)
-                st.success("✅ Vision Transformer loaded")
+                try:
+                    vit = timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
+                    vit.load_state_dict(torch.load(decompressed, map_location=device))
+                    vit.to(device)
+                    vit.eval()
+                    loaded_models['vit'] = vit
+                    os.unlink(decompressed)
+                    st.success("✅ Vision Transformer loaded successfully")
+                except Exception as e:
+                    st.error(f"❌ Error loading ViT: {str(e)}")
+        else:
+            st.warning(f"⚠️ ViT model not found at {vit_path}")
+        
+        # Load EfficientNet (uncompressed)
+        efficientnet_path = os.path.join(models_dir, "efficientnet_model_checkpoint.pth")
+        if os.path.exists(efficientnet_path):
+            st.info("📦 Loading EfficientNet model...")
+            try:
+                efficientnet = torch_models.efficientnet_b0(pretrained=False)
+                efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
+                efficientnet.load_state_dict(torch.load(efficientnet_path, map_location=device))
+                efficientnet.to(device)
+                efficientnet.eval()
+                loaded_models['efficientnet'] = efficientnet
+                st.success("✅ EfficientNet-B0 loaded successfully")
+            except Exception as e:
+                st.error(f"❌ Error loading EfficientNet: {str(e)}")
+        else:
+            st.warning(f"⚠️ EfficientNet model not found at {efficientnet_path}")
         
         # Load ensemble models
-        ensemble_files = [
-            'meta_model.pkl', 'xgb_meta_model.pkl', 
-            'cnn_stacking_logistic.pkl', 'cnn_stacking_xgb_model.pkl'
-        ]
+        ensemble_files = {
+            'meta_model.pkl': 'Meta Model',
+            'xgb_meta_model.pkl': 'XGBoost Meta Model',
+            'cnn_stacking_logistic.pkl': 'CNN Stacking (Logistic)',
+            'cnn_stacking_ensemble_xgb_model.pkl': 'CNN Stacking (XGBoost)',
+            'cnn_aggregator_ensemble_predictions.pkl': 'CNN Aggregator Ensemble',
+            'ensemble_metrics.pkl': 'Ensemble Metrics'
+        }
         
-        for filename in ensemble_files:
+        for filename, display_name in ensemble_files.items():
             filepath = os.path.join(models_dir, filename)
             if os.path.exists(filepath):
-                with open(filepath, 'rb') as f:
-                    model_name = filename.replace('.pkl', '').replace('cnn_', '')
-                    loaded_models[model_name] = pickle.load(f)
-                    st.success(f"✅ {model_name} loaded")
+                try:
+                    with open(filepath, 'rb') as f:
+                        loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
+                    st.success(f"✅ {display_name} loaded successfully")
+                except Exception as e:
+                    st.warning(f"⚠️ Could not load {display_name}: {str(e)}")
+            else:
+                st.info(f"ℹ️ Optional: {display_name} not found")
         
     except Exception as e:
         st.error(f"❌ Error loading DL models: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
     
     return loaded_models
 
 def load_pretrained_tabular_models(models_dir="Saved_Model"):
-    """Load all pre-trained tabular models"""
+    """Load all pre-trained tabular models with robust error handling"""
     loaded_models = {}
     
     if not os.path.exists(models_dir):
         st.warning(f"⚠️ Models directory '{models_dir}' not found.")
+        st.info(f"💡 Please create the directory or check the path: {os.path.abspath(models_dir)}")
         return loaded_models
     
     model_files = {
@@ -233,17 +280,77 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
         'support_vector_regressor.pkl': '📈 SVR',
     }
     
-    try:
-        for filename, display_name in model_files.items():
-            filepath = os.path.join(models_dir, filename)
-            if os.path.exists(filepath):
-                with open(filepath, 'rb') as f:
+    st.info(f"📂 Looking for models in: {os.path.abspath(models_dir)}")
+    
+    for filename, display_name in model_files.items():
+        filepath = os.path.join(models_dir, filename)
+        
+        if not os.path.exists(filepath):
+            st.warning(f"⚠️ {display_name} not found at {filepath}")
+            continue
+        
+        # Check file size
+        file_size = os.path.getsize(filepath)
+        if file_size == 0:
+            st.error(f"❌ {display_name} is empty (0 bytes)")
+            continue
+        
+        st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
+        
+        try:
+            # Try different pickle protocols
+            with open(filepath, 'rb') as f:
+                try:
                     loaded_models[display_name] = pickle.load(f)
-                st.success(f"✅ {display_name} loaded")
-            else:
-                st.warning(f"⚠️ {display_name} not found at {filepath}")
-    except Exception as e:
-        st.error(f"❌ Error loading tabular models: {str(e)}")
+                    st.success(f"✅ {display_name} loaded successfully")
+                except Exception as e1:
+                    # Try with different encoding
+                    st.warning(f"⚠️ Standard pickle failed, trying alternative methods...")
+                    f.seek(0)
+                    try:
+                        loaded_models[display_name] = pickle.load(f, encoding='latin1')
+                        st.success(f"✅ {display_name} loaded with latin1 encoding")
+                    except Exception as e2:
+                        # Try joblib if pickle fails
+                        try:
+                            import joblib
+                            loaded_models[display_name] = joblib.load(filepath)
+                            st.success(f"✅ {display_name} loaded with joblib")
+                        except Exception as e3:
+                            st.error(f"❌ Failed to load {display_name}")
+                            st.error(f"   Pickle error: {str(e1)[:100]}")
+                            st.error(f"   Latin1 error: {str(e2)[:100]}")
+                            st.error(f"   Joblib error: {str(e3)[:100]}")
+                            
+                            # Show file info for debugging
+                            with st.expander(f"🔍 Debug info for {display_name}"):
+                                st.code(f"File path: {filepath}\nFile size: {file_size} bytes")
+                                # Read first few bytes
+                                with open(filepath, 'rb') as debug_f:
+                                    first_bytes = debug_f.read(20)
+                                    st.code(f"First bytes (hex): {first_bytes.hex()}")
+                                    st.code(f"First bytes (repr): {repr(first_bytes)}")
+                            
+        except Exception as e:
+            st.error(f"❌ Error accessing {display_name}: {str(e)}")
+    
+    if loaded_models:
+        st.success(f"🎉 Successfully loaded {len(loaded_models)} models!")
+    else:
+        st.error("❌ No models were loaded. Please check:")
+        st.markdown("""
+        1. **File Format**: Models should be saved with `pickle.dump()` or `joblib.dump()`
+        2. **Python Version**: Models saved with Python 3.x should be loaded with Python 3.x
+        3. **File Integrity**: Files may be corrupted if downloads were interrupted
+        4. **Library Versions**: Check sklearn, xgboost, lightgbm, catboost versions
+        
+        **To re-save models properly:**
+        ```python
+        import pickle
+        with open('model_name.pkl', 'wb') as f:
+            pickle.dump(model, f, protocol=pickle.HIGHEST_PROTOCOL)
+        ```
+        """)
     
     return loaded_models
 
@@ -413,7 +520,7 @@ def predict_with_ensemble(image, models_dict):
     
     # Get predictions from each model
     with torch.no_grad():
-        for model_name in ['resnet', 'densenet', 'vit']:
+        for model_name in ['resnet', 'densenet', 'vit', 'efficientnet']:
             if model_name in models_dict:
                 try:
                     output = models_dict[model_name](img_tensor)
@@ -750,7 +857,7 @@ elif page == "⚙️ Model Training":
     
     st.markdown("#### 📁 Load Pre-trained Tabular Models")
     
-    models_dir = st.text_input("Tabular models directory:", value="trained_models")
+    models_dir = st.text_input("Tabular models directory:", value="Saved_Model")
     
     if st.button("🔄 Load Pre-trained Models", type="primary", key="load_tabular"):
         with st.spinner("Loading pre-trained models..."):
@@ -937,9 +1044,11 @@ elif page == "🛰️ Satellite Analysis":
     
     st.markdown("""
     Load pre-trained deep learning models for satellite imagery analysis:
-    - **ResNet-50**: Deep residual network
-    - **DenseNet-121**: Densely connected network
-    - **Vision Transformer (ViT)**: Attention-based model
+    - **ResNet-50**: Deep residual network (compressed)
+    - **DenseNet-121**: Densely connected network (compressed)
+    - **Vision Transformer (ViT)**: Attention-based model (compressed)
+    - **EfficientNet-B0**: Efficient convolutional network
+    - **Ensemble Models**: Meta-learners and stacking models
     """)
     
     st.markdown("#### 📁 Load Compressed Deep Learning Models")
@@ -973,13 +1082,28 @@ elif page == "🛰️ Satellite Analysis":
     else:
         st.info("👆 Click 'Load DL Models' to load compressed models")
         
-        st.markdown("#### 📋 Required Files (Compressed)")
+        st.markdown("#### 📋 Required Files")
         st.markdown("""
-        Place these compressed files in your models directory:
+        **In `pretrained_models/` directory:**
+        
+        **Compressed PyTorch Models (.pth.gz):**
         - `model_compressed_resnet_model_checkpoint.pth.gz`
         - `model_compressed_densenet_model_checkpoint.pth.gz`
         - `model_compressed.pth.gz` (ViT)
-        - Optional ensemble files: `meta_model.pkl`, `xgb_meta_model.pkl`
+        
+        **Uncompressed PyTorch Model:**
+        - `efficientnet_model_checkpoint.pth`
+        
+        **Ensemble Models (.pkl):**
+        - `meta_model.pkl`
+        - `xgb_meta_model.pkl`
+        - `cnn_stacking_logistic.pkl`
+        - `cnn_stacking_ensemble_xgb_model.pkl`
+        - `cnn_aggregator_ensemble_predictions.pkl`
+        - `ensemble_metrics.pkl`
+        
+        **In `Saved_Model/` directory:**
+        - All tabular ML models (.pkl files)
         """)
 
 # ==================== PAGE: IMAGE FLOOD DETECTION ====================
