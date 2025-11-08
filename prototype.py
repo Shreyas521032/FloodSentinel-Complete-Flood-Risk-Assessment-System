@@ -733,10 +733,8 @@ def load_datasets_from_kaggle():
             path_sat = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
             st.success(f"✅ Satellite imagery data downloaded to: {path_sat}")
         with st.spinner("🔄 Downloading pretrained models..."):
-            path_models = kagglehub.kernel_output_download(
-                "subhojeetroy01/flood-prediction-models-performance-comparison"
-            )
-            st.success(f"✅ Models downloaded to: {path_models}")
+            path = kagglehub.model_download("subhojeetroy01/flood-prediction-models-performance-comparison")
+            st.success(f"✅ Models downloaded to: {path}")
                     
             flood_files = [os.path.join(root, file) for root, dirs, files in os.walk(path_tabular) for file in files if file.endswith('.csv')]
             if flood_files:
