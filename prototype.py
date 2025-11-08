@@ -737,9 +737,7 @@ def load_datasets_from_kaggle():
                 "subhojeetroy01/flood-prediction-models-performance-comparison"
             )
             st.success(f"✅ Models downloaded to: {path_models}")
-        model_path = os.path.join(path_models, "densenet_model_checkpoint.pth")
-        st.write(f"Model file located at: {model_path}")
-            
+                    
             flood_files = [os.path.join(root, file) for root, dirs, files in os.walk(path_tabular) for file in files if file.endswith('.csv')]
             if flood_files:
                 df_flood = pd.read_csv(flood_files[0])
@@ -766,6 +764,8 @@ def load_datasets_from_kaggle():
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
         return None, []
+    model_path = os.path.join(path_models, "densenet_model_checkpoint.pth")
+        st.write(f"Model file located at: {model_path}")
 
 def create_sample_data():
     """Create sample flood prediction data"""
