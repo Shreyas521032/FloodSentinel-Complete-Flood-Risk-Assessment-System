@@ -129,315 +129,256 @@ if 'scaler' not in st.session_state:
 
 # ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
 
-def decompress_model(compressed_path):
-    """Decompress a .gz compressed model file with validation"""
+def decompress_and_load_model(compressed_path, model_architecture, device):
+    """
+    Decompress and load PyTorch model with support for both state_dict and full model objects
+    
+    Args:
+        compressed_path: Path to .pth.gz file
+        model_architecture: Initialized model architecture (e.g., resnet50)
+        device: torch device (cpu or cuda)
+    
+    Returns:
+        Loaded model or None if failed
+    """
+    import gzip
+    import tempfile
+    import torch
+    import os
+    
     try:
-        import tempfile
-        
-        # Check if file exists and has content
+        # Check file exists
         if not os.path.exists(compressed_path):
-            st.error(f"File not found: {compressed_path}")
+            print(f"❌ File not found: {compressed_path}")
             return None
         
         file_size = os.path.getsize(compressed_path)
-        if file_size == 0:
-            st.error(f"File is empty: {compressed_path}")
-            return None
+        print(f"📦 Decompressing {os.path.basename(compressed_path)} ({file_size / (1024*1024):.2f} MB)...")
         
-        st.info(f"📦 Decompressing {os.path.basename(compressed_path)} ({file_size / (1024*1024):.2f} MB)...")
-        
+        # Decompress
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pth') as tmp_file:
             try:
                 with gzip.open(compressed_path, 'rb') as f_in:
                     decompressed_data = f_in.read()
                     tmp_file.write(decompressed_data)
-                    tmp_file.flush()  # Ensure data is written
-                    st.success(f"✅ Decompressed to {len(decompressed_data) / (1024*1024):.2f} MB")
+                    tmp_file.flush()
                 
-                # Verify the decompressed file is valid
+                print(f"✅ Decompressed to {len(decompressed_data) / (1024*1024):.2f} MB")
+                
+                # Try loading - Method 1: State dict
                 try:
-                    test_load = torch.load(tmp_file.name, map_location='cpu', weights_only=False)
-                    st.success("✅ File verified as valid PyTorch checkpoint")
-                    return tmp_file.name
-                except Exception as verify_err:
-                    st.error(f"❌ Decompressed file is not a valid PyTorch checkpoint: {str(verify_err)[:100]}")
-                    st.info("💡 Your .gz file may contain raw model weights instead of a PyTorch state dict")
-                    os.unlink(tmp_file.name)
-                    return None
+                    state_dict = torch.load(tmp_file.name, map_location=device, weights_only=False)
                     
-            except gzip.BadGzipFile:
-                st.error(f"❌ Invalid gzip file: {compressed_path}")
-                st.info("💡 The file might not be gzip compressed or is corrupted")
-                return None
-            except Exception as e:
-                st.error(f"❌ Decompression error: {str(e)}")
-                return None
+                    # Handle nested dict formats
+                    if isinstance(state_dict, dict):
+                        if 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        elif 'model' in state_dict:
+                            state_dict = state_dict['model']
+                    
+                    # Try loading into architecture
+                    model_architecture.load_state_dict(state_dict, strict=False)
+                    model_architecture.to(device)
+                    model_architecture.eval()
+                    print("✅ Loaded as state dict")
+                    return model_architecture
+                    
+                except Exception as e1:
+                    # Method 2: Try loading as full model object
+                    print(f"⚠️ State dict loading failed: {str(e1)[:100]}")
+                    print("🔄 Trying to load as full model object...")
+                    
+                    try:
+                        loaded_model = torch.load(tmp_file.name, map_location=device, weights_only=False)
+                        
+                        # If it's a full model, just use it
+                        if hasattr(loaded_model, 'eval'):
+                            loaded_model.to(device)
+                            loaded_model.eval()
+                            print("✅ Loaded as full model object")
+                            return loaded_model
+                        else:
+                            print("❌ Loaded object is not a valid model")
+                            return None
+                            
+                    except Exception as e2:
+                        print(f"❌ Full model loading also failed: {str(e2)[:100]}")
+                        
+                        # Method 3: Try loading with different pickle protocols
+                        print("🔄 Trying alternative loading methods...")
+                        try:
+                            import pickle
+                            with open(tmp_file.name, 'rb') as f:
+                                loaded_model = pickle.load(f)
+                            
+                            if hasattr(loaded_model, 'eval'):
+                                loaded_model.to(device)
+                                loaded_model.eval()
+                                print("✅ Loaded with pickle")
+                                return loaded_model
+                            else:
+                                print("❌ Not a valid model")
+                                return None
+                        except Exception as e3:
+                            print(f"❌ All loading methods failed")
+                            print(f"   Error 1 (state_dict): {str(e1)[:80]}")
+                            print(f"   Error 2 (full model): {str(e2)[:80]}")
+                            print(f"   Error 3 (pickle): {str(e3)[:80]}")
+                            return None
                 
+            except gzip.BadGzipFile:
+                print(f"❌ Invalid gzip file: {compressed_path}")
+                return None
+            finally:
+                # Clean up temp file
+                try:
+                    os.unlink(tmp_file.name)
+                except:
+                    pass
+                    
     except Exception as e:
-        st.error(f"❌ Error in decompress_model: {str(e)}")
+        print(f"❌ Critical error: {str(e)}")
         return None
 
-def load_pretrained_dl_models(models_dir="pretrained_models"):
-    """Load all pre-trained deep learning models with robust error handling"""
+
+def load_pretrained_dl_models_fixed(models_dir="pretrained_models"):
+    """
+    Fixed version that handles both state_dict and full model objects
+    """
+    import torch
+    import torch.nn as nn
+    from torchvision import models as torch_models
+    import os
+    
     loaded_models = {}
     
     if not os.path.exists(models_dir):
-        st.warning(f"⚠️ Models directory '{models_dir}' not found.")
-        st.info(f"💡 Please create the directory: {os.path.abspath(models_dir)}")
+        print(f"⚠️ Models directory '{models_dir}' not found.")
         return loaded_models
     
-    try:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        st.info(f"🖥️ Using device: {device}")
-        
-        # Load ResNet
-        resnet_path = os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz")
-        if os.path.exists(resnet_path):
-            decompressed = decompress_model(resnet_path)
-            if decompressed:
-                try:
-                    st.info("🔄 Loading ResNet-50 architecture...")
-                    resnet = torch_models.resnet50(pretrained=False)
-                    resnet.fc = nn.Linear(resnet.fc.in_features, 2)
-                    
-                    # Try loading with different map_location strategies
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
-                        # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
-                        
-                        resnet.load_state_dict(state_dict, strict=False)
-                        resnet.to(device)
-                        resnet.eval()
-                        loaded_models['resnet'] = resnet
-                        st.success("✅ ResNet-50 loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading ResNet weights: {str(load_err)[:200]}")
-                        st.info("💡 Try re-saving your model: `torch.save(model.state_dict(), 'model.pth')`")
-                    
-                    # Clean up temp file
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
-                except Exception as e:
-                    st.error(f"❌ Error with ResNet: {str(e)}")
-        else:
-            st.warning(f"⚠️ ResNet model not found at {resnet_path}")
-        
-        # Load DenseNet
-        densenet_path = os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz")
-        if os.path.exists(densenet_path):
-            decompressed = decompress_model(densenet_path)
-            if decompressed:
-                try:
-                    st.info("🔄 Loading DenseNet-121 architecture...")
-                    densenet = torch_models.densenet121(pretrained=False)
-                    densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
-                    
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
-                        # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
-                        
-                        densenet.load_state_dict(state_dict, strict=False)
-                        densenet.to(device)
-                        densenet.eval()
-                        loaded_models['densenet'] = densenet
-                        st.success("✅ DenseNet-121 loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading DenseNet weights: {str(load_err)[:200]}")
-                    
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
-                except Exception as e:
-                    st.error(f"❌ Error with DenseNet: {str(e)}")
-        else:
-            st.warning(f"⚠️ DenseNet model not found at {densenet_path}")
-        
-        # Load ViT
-        vit_path = os.path.join(models_dir, "model_compressed.pth.gz")
-        if os.path.exists(vit_path):
-            decompressed = decompress_model(vit_path)
-            if decompressed:
-                try:
-                    st.info("🔄 Loading Vision Transformer architecture...")
-                    # Import timm here to avoid scope issues
-                    import timm as timm_module
-                    vit = timm_module.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
-                    
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
-                        # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
-                        
-                        vit.load_state_dict(state_dict, strict=False)
-                        vit.to(device)
-                        vit.eval()
-                        loaded_models['vit'] = vit
-                        st.success("✅ Vision Transformer loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading ViT weights: {str(load_err)[:200]}")
-                    
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
-                except Exception as e:
-                    st.error(f"❌ Error with ViT: {str(e)}")
-        else:
-            st.warning(f"⚠️ ViT model not found at {vit_path}")
-        
-        # Load EfficientNet (uncompressed) - try multiple architectures
-        efficientnet_path = os.path.join(models_dir, "efficientnet_model_checkpoint.pth")
-        if os.path.exists(efficientnet_path):
-            try:
-                file_size = os.path.getsize(efficientnet_path)
-                st.info(f"🔄 Loading EfficientNet ({file_size / (1024*1024):.2f} MB)...")
-                
-                # Load the state dict first to inspect it
-                state_dict = torch.load(efficientnet_path, map_location=device, weights_only=False)
-                
-                # Handle different checkpoint formats
-                if isinstance(state_dict, dict):
-                    if 'state_dict' in state_dict:
-                        state_dict = state_dict['state_dict']
-                    elif 'model_state_dict' in state_dict:
-                        state_dict = state_dict['model_state_dict']
-                
-                # Try to determine the architecture from keys
-                if 'blocks.0.0.conv_dw.weight' in state_dict:
-                    # timm EfficientNet structure
-                    st.info("Detected timm EfficientNet architecture")
-                    try:
-                        import timm as timm_module
-                        efficientnet = timm_module.create_model('efficientnet_b0', pretrained=False, num_classes=2)
-                        efficientnet.load_state_dict(state_dict, strict=False)
-                        efficientnet.to(device)
-                        efficientnet.eval()
-                        loaded_models['efficientnet'] = efficientnet
-                        st.success("✅ EfficientNet-B0 (timm) loaded successfully")
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not load with timm: {str(e)}")
-                else:
-                    # Try standard torchvision
-                    efficientnet = torch_models.efficientnet_b0(pretrained=False)
-                    efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
-                    try:
-                        efficientnet.load_state_dict(state_dict, strict=False)
-                        efficientnet.to(device)
-                        efficientnet.eval()
-                        loaded_models['efficientnet'] = efficientnet
-                        st.success("✅ EfficientNet-B0 (torchvision) loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading EfficientNet weights: {str(load_err)[:200]}")
-                        st.info("⚠️ EfficientNet skipped - architecture mismatch")
-                    
-            except Exception as e:
-                st.error(f"❌ Error with EfficientNet: {str(e)[:200]}")
-                st.info("⚠️ EfficientNet will be skipped - continuing with other models")
-        else:
-            st.warning(f"⚠️ EfficientNet model not found at {efficientnet_path}")
-        
-        # Load ensemble models (pickle files)
-        ensemble_files = {
-            'meta_model.pkl': 'Meta Model',
-            'xgb_meta_model.pkl': 'XGBoost Meta Model',
-            'cnn_stacking_logistic.pkl': 'CNN Stacking (Logistic)',
-            'cnn_stacking_ensemble_xgb_model.pkl': 'CNN Stacking (XGBoost)',
-            'cnn_aggregator_ensemble_predictions.pkl': 'CNN Aggregator Ensemble',
-            'ensemble_metrics.pkl': 'Ensemble Metrics'
-        }
-        
-        for filename, display_name in ensemble_files.items():
-            filepath = os.path.join(models_dir, filename)
-            if os.path.exists(filepath):
-                try:
-                    file_size = os.path.getsize(filepath)
-                    st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
-                    
-                    with open(filepath, 'rb') as f:
-                        try:
-                            loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
-                            st.success(f"✅ {display_name} loaded successfully")
-                        except Exception as e1:
-                            # Try joblib
-                            try:
-                                import joblib
-                                loaded_models[filename.replace('.pkl', '')] = joblib.load(filepath)
-                                st.success(f"✅ {display_name} loaded with joblib")
-                            except Exception as e2:
-                                st.warning(f"⚠️ Could not load {display_name}: {str(e1)[:100]}")
-                                
-                except Exception as e:
-                    st.warning(f"⚠️ Error accessing {display_name}: {str(e)}")
-            else:
-                st.info(f"ℹ️ Optional: {display_name} not found")
-        
-        if not loaded_models:
-            st.error("❌ No models were loaded. Please check:")
-            st.markdown("""
-            ### Troubleshooting Steps:
-            
-            1. **For PyTorch models (.pth.gz files):**
-               ```python
-               # Your files may not be properly saved. To fix:
-               import torch
-               import gzip
-               
-               # Save model state dict
-               torch.save(model.state_dict(), 'temp.pth')
-               
-               # Compress with gzip
-               with open('temp.pth', 'rb') as f_in:
-                   with gzip.open('model.pth.gz', 'wb') as f_out:
-                       f_out.write(f_in.read())
-               ```
-            
-            2. **Alternative: Skip compression**
-               - Rename your `.pth.gz` files to `.pth`
-               - Update the code to look for `.pth` instead
-            
-            3. **For EfficientNet:**
-               - Model was saved with `timm` library architecture
-               - Using `strict=False` to load partial weights
-            
-            **Current Status:**
-            - ✅ {len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])} CNN models loaded
-            - ✅ {len([k for k in loaded_models.keys() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']])} ensemble models loaded
-            """)
-        else:
-            cnn_count = len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])
-            ensemble_count = len(loaded_models) - cnn_count
-            st.success(f"✅ Loaded {cnn_count} CNN models and {ensemble_count} ensemble models!")
-            
-            if cnn_count == 0:
-                st.warning("⚠️ No CNN models loaded - image prediction will use context analysis only")
-                st.info("💡 You can still use the app with tabular models and context-based image analysis")
-        
-    except Exception as e:
-        st.error(f"❌ Critical error loading DL models: {str(e)}")
-        import traceback
-        with st.expander("🔍 Full Error Traceback"):
-            st.code(traceback.format_exc())
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"🖥️ Using device: {device}")
     
+    # Model configurations
+    model_configs = {
+        'resnet': {
+            'path': os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz"),
+            'architecture': lambda: torch_models.resnet50(pretrained=False)
+        },
+        'densenet': {
+            'path': os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz"),
+            'architecture': lambda: torch_models.densenet121(pretrained=False)
+        },
+        'vit': {
+            'path': os.path.join(models_dir, "model_compressed.pth.gz"),
+            'architecture': lambda: None  # Will be created with timm
+        },
+        'efficientnet': {
+            'path': os.path.join(models_dir, "efficientnet_model_checkpoint.pth"),
+            'architecture': lambda: torch_models.efficientnet_b0(pretrained=False)
+        }
+    }
+    
+    # Load ResNet
+    print("\n🔄 Loading ResNet-50...")
+    if os.path.exists(model_configs['resnet']['path']):
+        resnet = model_configs['resnet']['architecture']()
+        resnet.fc = nn.Linear(resnet.fc.in_features, 2)
+        loaded_model = decompress_and_load_model(
+            model_configs['resnet']['path'],
+            resnet,
+            device
+        )
+        if loaded_model:
+            loaded_models['resnet'] = loaded_model
+    else:
+        print(f"⚠️ ResNet not found")
+    
+    # Load DenseNet
+    print("\n🔄 Loading DenseNet-121...")
+    if os.path.exists(model_configs['densenet']['path']):
+        densenet = model_configs['densenet']['architecture']()
+        densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
+        loaded_model = decompress_and_load_model(
+            model_configs['densenet']['path'],
+            densenet,
+            device
+        )
+        if loaded_model:
+            loaded_models['densenet'] = loaded_model
+    else:
+        print(f"⚠️ DenseNet not found")
+    
+    # Load ViT
+    print("\n🔄 Loading Vision Transformer...")
+    if os.path.exists(model_configs['vit']['path']):
+        try:
+            import timm
+            vit = timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
+            loaded_model = decompress_and_load_model(
+                model_configs['vit']['path'],
+                vit,
+                device
+            )
+            if loaded_model:
+                loaded_models['vit'] = loaded_model
+        except ImportError:
+            print("⚠️ timm library not installed")
+    else:
+        print(f"⚠️ ViT not found")
+    
+    # Load EfficientNet (uncompressed)
+    print("\n🔄 Loading EfficientNet-B0...")
+    if os.path.exists(model_configs['efficientnet']['path']):
+        try:
+            efficientnet = model_configs['efficientnet']['architecture']()
+            efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
+            
+            state_dict = torch.load(model_configs['efficientnet']['path'], 
+                                   map_location=device, weights_only=False)
+            
+            # Handle nested formats
+            if isinstance(state_dict, dict):
+                if 'state_dict' in state_dict:
+                    state_dict = state_dict['state_dict']
+                elif 'model_state_dict' in state_dict:
+                    state_dict = state_dict['model_state_dict']
+            
+            efficientnet.load_state_dict(state_dict, strict=False)
+            efficientnet.to(device)
+            efficientnet.eval()
+            loaded_models['efficientnet'] = efficientnet
+            print("✅ EfficientNet loaded")
+        except Exception as e:
+            print(f"⚠️ EfficientNet failed: {str(e)[:100]}")
+    else:
+        print(f"⚠️ EfficientNet not found")
+    
+    # Load ensemble models (pickle files)
+    print("\n🔄 Loading ensemble models...")
+    ensemble_files = {
+        'meta_model.pkl': 'Meta Model',
+        'xgb_meta_model.pkl': 'XGBoost Meta',
+        'cnn_stacking_logistic.pkl': 'Stacking Logistic',
+        'cnn_stacking_ensemble_xgb_model.pkl': 'Stacking XGBoost',
+        'cnn_aggregator_ensemble_predictions.pkl': 'CNN Aggregator',
+        'ensemble_metrics.pkl': 'Metrics'
+    }
+    
+    for filename, display_name in ensemble_files.items():
+        filepath = os.path.join(models_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                import pickle
+                with open(filepath, 'rb') as f:
+                    loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
+                print(f"✅ {display_name} loaded")
+            except Exception as e:
+                print(f"⚠️ {display_name} failed: {str(e)[:60]}")
+    
+    print(f"\n Total loaded: {len(loaded_models)} components")
     return loaded_models
 
 def load_pretrained_tabular_models(models_dir="Saved_Model"):
@@ -1290,7 +1231,7 @@ elif page == "🛰️ Satellite Analysis":
     
     if st.button("🔄 Load DL Models", type="primary"):
         with st.spinner("Decompressing and loading models..."):
-            loaded_models = load_pretrained_dl_models(models_dir)
+            loaded_models = load_pretrained_dl_models_fixed(models_dir)
             
             if loaded_models:
                 st.session_state.ensemble_models = loaded_models
