@@ -411,15 +411,15 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
         return loaded_models
     
     model_files = {
-        'linear_regression.pkl': '📈 Linear Regression',
-        'ridge.pkl': '📊 Ridge',
-        'lasso.pkl': '🔗 Lasso',
-        'k_neighbors_regressor.pkl': '👥 K-Neighbors',
-        'decision_tree_regressor.pkl': '🌿 Decision Tree',
-        'xgboost_regressor.pkl': '🚀 XGBoost',
-        'lightgbm_regressor.pkl': '💡 LightGBM',
-        'catboost_regressor.pkl': '🎯 CatBoost',
-        'support_vector_regressor.pkl': '📈 SVR',
+        'linear_regression (1).pkl': '📈 Linear Regression',
+        'ridge (1).pkl': '📊 Ridge',
+        'lasso (1).pkl': '🔗 Lasso',
+        'k_neighbors_regressor (1).pkl': '👥 K-Neighbors',
+        'decision_tree_regressor (1).pkl': '🌿 Decision Tree',
+        'xgboost_regressor (1).pkl': '🚀 XGBoost',
+        'lightgbm_regressor (1).pkl': '💡 LightGBM',
+        'catboost_regressor (1).pkl': '🎯 CatBoost',
+        'support_vector_regressor (1).pkl': '📈 SVR',
     }
     
     st.info(f"📂 Looking for models in: {os.path.abspath(models_dir)}")
