@@ -25,3 +25,4 @@ sympy
 statsmodels
 sklearn.preprocessing
 catboost 
+torch
