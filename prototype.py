@@ -1297,14 +1297,13 @@ elif page == "🛰️ Satellite Analysis":
     if st.button("🔍 Check Models Directory", type="secondary"):
         check_models_directory(models_dir)
     if st.button("🔄 Load DL Models", type="primary"):
-    with st.spinner("Decompressing and loading models..."):
+        with st.spinner("Decompressing and loading models..."):
         # First check what's there
-        st.code("Checking directory contents...")
-        check_models_directory(models_dir)
+            st.code("Checking directory contents...")
+            check_models_directory(models_dir)
         
         # Then load
         loaded_models = load_pretrained_dl_models_v2(models_dir)
-        
         if loaded_models:
             st.session_state.ensemble_models = loaded_models
             st.session_state.models_loaded = True
