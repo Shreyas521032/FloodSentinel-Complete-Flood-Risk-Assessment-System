@@ -26,15 +26,17 @@ import zipfile
 import cv2
 from PIL import Image
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import time
 import json
+import io
 
 warnings.filterwarnings('ignore')
 
+# ==================== PAGE CONFIGURATION ====================
 st.set_page_config(
     page_title="FloodSentinel - AI-Powered Flood Risk Assessment",
     page_icon="🌊",
@@ -42,6 +44,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==================== CUSTOM CSS ====================
 st.markdown("""
 <style>
     .main-header {
@@ -86,6 +89,7 @@ st.markdown("""
         color: #333;
         margin: 1rem 0;
     }
+    
     .footer {
         position: relative;
         left: 0;
@@ -105,7 +109,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# ==================== SESSION STATE INITIALIZATION ====================
 if 'models_trained' not in st.session_state:
     st.session_state.models_trained = False
 if 'dataset_loaded' not in st.session_state:
@@ -120,23 +124,146 @@ if 'df_flood' not in st.session_state:
     st.session_state.df_flood = None
 if 'sat_files' not in st.session_state:
     st.session_state.sat_files = []
+if 'cnn_model' not in st.session_state:
+    st.session_state.cnn_model = None
+if 'cnn_trained' not in st.session_state:
+    st.session_state.cnn_trained = False
+if 'cnn_history' not in st.session_state:
+    st.session_state.cnn_history = None
 
-st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
+# ==================== DEEP LEARNING FUNCTIONS ====================
 
-st.sidebar.markdown("### 🧭 Navigation")
-page = st.sidebar.selectbox(
-    "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
-)
-st.sidebar.markdown("---") 
-st.sidebar.link_button(
-    "🌐 Ask the Sentinel Chatbot", 
-    "https://flood-app-repo-chatbot-sck.streamlit.app/", 
-    type="secondary", 
-    help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
-)
+def create_advanced_cnn_model(input_shape=(224, 224, 3)):
+    """Create an advanced CNN model for flood detection from satellite imagery"""
+    model = Sequential([
+        # Block 1
+        Conv2D(64, (3, 3), activation='relu', padding='same', input_shape=input_shape),
+        BatchNormalization(),
+        Conv2D(64, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+        
+        # Block 2
+        Conv2D(128, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        Conv2D(128, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+        
+        # Block 3
+        Conv2D(256, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        Conv2D(256, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+        
+        # Block 4
+        Conv2D(512, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        Conv2D(512, (3, 3), activation='relu', padding='same'),
+        BatchNormalization(),
+        MaxPooling2D((2, 2)),
+        Dropout(0.25),
+        
+        # Dense layers
+        Flatten(),
+        Dense(1024, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.5),
+        Dense(512, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.5),
+        Dense(1, activation='sigmoid')
+    ])
+    
+    model.compile(
+        optimizer=Adam(learning_rate=0.0001),
+        loss='binary_crossentropy',
+        metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
+    )
+    
+    return model
 
+def preprocess_satellite_image(image, target_size=(224, 224)):
+    """Preprocess satellite image for CNN prediction"""
+    try:
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # Resize
+        image = image.resize(target_size)
+        
+        # Convert to array and normalize
+        img_array = np.array(image).astype(np.float32) / 255.0
+        
+        # Apply CLAHE for contrast enhancement
+        lab = cv2.cvtColor((img_array * 255).astype(np.uint8), cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        lab = cv2.merge([l, a, b])
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB).astype(np.float32) / 255.0
+        
+        return enhanced
+    except Exception as e:
+        st.error(f"Error preprocessing image: {str(e)}")
+        return None
+
+def create_false_color_composite(image):
+    """Create false color composite for better flood visualization"""
+    try:
+        img_array = np.array(image)
+        
+        # Simulate NIR band (Near-Infrared) by manipulating channels
+        # Water appears dark in NIR, so we invert the blue channel
+        r = img_array[:, :, 0]
+        g = img_array[:, :, 1]
+        b = img_array[:, :, 2]
+        
+        # False color: NIR(inverted blue), Red, Green
+        nir = 255 - b
+        false_color = np.stack([nir, r, g], axis=-1)
+        
+        return Image.fromarray(false_color.astype(np.uint8))
+    except Exception as e:
+        st.error(f"Error creating false color composite: {str(e)}")
+        return image
+
+def extract_water_mask(image):
+    """Extract potential water areas using color thresholding"""
+    try:
+        img_array = np.array(image)
+        
+        # Convert to HSV for better water detection
+        hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+        
+        # Define range for water (dark blue/black areas)
+        lower_water = np.array([0, 0, 0])
+        upper_water = np.array([180, 255, 100])
+        
+        # Create mask
+        water_mask = cv2.inRange(hsv, lower_water, upper_water)
+        
+        # Apply morphological operations to clean up mask
+        kernel = np.ones((5, 5), np.uint8)
+        water_mask = cv2.morphologyEx(water_mask, cv2.MORPH_CLOSE, kernel)
+        water_mask = cv2.morphologyEx(water_mask, cv2.MORPH_OPEN, kernel)
+        
+        # Convert to 3-channel for visualization
+        water_mask_rgb = cv2.cvtColor(water_mask, cv2.COLOR_GRAY2RGB)
+        water_mask_rgb[:, :, 0] = 0
+        water_mask_rgb[:, :, 2] = 0
+        
+        return Image.fromarray(water_mask_rgb)
+    except Exception as e:
+        st.error(f"Error extracting water mask: {str(e)}")
+        return image
+
+# ==================== UTILITY FUNCTIONS ====================
 
 @st.cache_resource
 def load_datasets_actual():
@@ -210,52 +337,6 @@ def get_model_algorithms():
         "📊 Ridge Regression": Ridge(random_state=42),
     }
 
-def preprocess_image(img_path, target_size=(128, 128)):
-    """Preprocess image for CNN"""
-    try:
-        img = Image.open(img_path)
-        img = img.convert('RGB')
-        img = img.resize(target_size)
-        img = np.array(img).astype(np.float32) / 255.0
-        return img
-    except Exception as e:
-        return None
-
-def create_cnn_model(input_shape=(128, 128, 3)):
-    """Create CNN model for satellite imagery"""
-    model = Sequential([
-        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(64, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(128, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(256, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Flatten(),
-        Dense(512, activation='relu'),
-        Dropout(0.5),
-        Dense(256, activation='relu'),
-        Dropout(0.3),
-        Dense(1, activation='sigmoid')
-    ])
-    
-    model.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
-    
-    return model
-
 def create_sample_data():
     """Create sample flood prediction data for demonstration with global coordinates"""
     np.random.seed(42)
@@ -303,6 +384,29 @@ def create_sample_data():
     
     return df
 
+# ==================== MAIN APPLICATION ====================
+
+st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
+st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
+
+# ==================== SIDEBAR NAVIGATION ====================
+
+st.sidebar.markdown("### 🧭 Navigation")
+page = st.sidebar.selectbox(
+    "Choose a section:",
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", 
+     "🛰️ Satellite Analysis", "🖼️ Image Flood Detection", "📈 Results Dashboard"]
+)
+st.sidebar.markdown("---") 
+st.sidebar.link_button(
+    "🌐 Ask the Sentinel Chatbot", 
+    "https://flood-app-repo-chatbot-sck.streamlit.app/", 
+    type="secondary", 
+    help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
+)
+
+# ==================== PAGE: HOME ====================
+
 if page == "🏠 Home":
     st.markdown("### 🎯 Project Overview")
     
@@ -333,6 +437,7 @@ if page == "🏠 Home":
                 <li>📊 Real-time flood risk assessment</li>
                 <li>🎯 Hydrological knowledge integration</li>
                 <li>📈 Interactive visualizations</li>
+                <li>🖼️ Image-based flood detection</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -361,6 +466,8 @@ if page == "🏠 Home":
     if st.session_state.dataset_loaded:
         st.success(f"✅ Dataset loaded with {len(st.session_state.df_flood)} records!")
         st.dataframe(st.session_state.df_flood.head(), use_container_width=True)
+
+# ==================== PAGE: DATA ANALYSIS ====================
 
 elif page == "📊 Data Analysis":
     st.markdown("### 📊 Exploratory Data Analysis")
@@ -454,37 +561,8 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
-    
-    st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
-    
-    key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
-    if all(col in df.columns for col in key_factors) and 'FloodProbability' in df.columns:
-        fig_scatter = px.scatter_matrix(
-            df[key_factors + ['FloodProbability']],
-            dimensions=key_factors,
-            color='FloodProbability',
-            title='Pairwise Scatter Plot of Key Factors',
-            color_continuous_scale=px.colors.sequential.Plasma
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-    else:
-        st.info("The selected dataset does not contain all the required columns for this plot.")
-        
-    st.markdown("#### 🎯 Impact of Key Factors on Flood Probability")
-    
-    key_factors_for_box = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
-    if all(col in df.columns for col in key_factors_for_box) and 'FloodProbability' in df.columns:
-        df_melt = df.melt(id_vars=['FloodProbability'], value_vars=key_factors_for_box, var_name='Factor', value_name='Value')
-        fig_factors = px.box(
-            df_melt,
-            x='Factor',
-            y='FloodProbability',
-            color='Factor',
-            title='Impact of Key Factors on Flood Probability'
-        )
-        st.plotly_chart(fig_factors, use_container_width=True)
-    else:
-        st.info("The selected dataset does not contain all the required columns for this plot.")
+
+# ==================== PAGE: MODEL TRAINING ====================
 
 elif page == "⚙️ Model Training":
     st.markdown("### ⚙️ State-of-the-Art Model Training")
@@ -614,6 +692,8 @@ elif page == "⚙️ Model Training":
         else:
             st.error("❌ No models were successfully trained.")
 
+# ==================== PAGE: PREDICTIONS ====================
+
 elif page == "🔮 Predictions":
     st.markdown("### 🔮 Flood Risk Predictions")
     
@@ -714,118 +794,101 @@ elif page == "🔮 Predictions":
                 fig_pred.update_layout(height=400)
                 st.plotly_chart(fig_pred, use_container_width=True)
 
+# ==================== PAGE: SATELLITE ANALYSIS ====================
+
 elif page == "🛰️ Satellite Analysis":
-    st.markdown("### 🛰️ Satellite Imagery Analysis: A Step-by-Step Guide")
+    st.markdown("### 🛰️ Deep Learning Satellite Imagery Analysis")
     
     if not st.session_state.dataset_loaded:
         st.warning("⚠️ Please load datasets first from the Home page")
         st.stop()
     
-    st.markdown("#### 1. Data Preprocessing & Visualization")
+    st.markdown("#### 📚 Training Deep Learning Model for Flood Detection")
+    
     st.markdown("""
-    Satellite images contain data in multiple **spectral bands** beyond what the human eye can see (Red, Green, Blue). To make this raw data useful, we combine different bands to create informative images. The images below demonstrate this process:
-    - **True Color:** A human-readable photo created by combining the Red, Green, and Blue bands.
-    - **False Color:** A composite using different bands (like Near-Infrared) to highlight specific features like water.
+    This section trains a Convolutional Neural Network (CNN) on satellite imagery to detect flood patterns.
+    The model learns to identify flooded areas from multi-spectral satellite images.
     """)
     
-    sat_files = st.session_state.sat_files
-    if sat_files:
-        st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
-        
-        display_count = min(12, len(sat_files))
-        
-        # Display the True-Color images in a single row
-        st.subheader("True-Color Images")
-        cols_true_color = st.columns(display_count)
-        
-        for i in range(display_count):
-            img_path = sat_files[i]
-            try:
-                if os.path.exists(img_path):
-                    img_rgb = Image.open(img_path).convert('RGB')
-                    with cols_true_color[i]:
-                        st.image(img_rgb, caption=f"Sample {i+1}", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error loading image {i+1}: {str(e)}")
-
-        st.markdown("---")
-
-        # Display the False-Color composites in a separate row
-        st.subheader("False-Color Flood Composites")
-        cols_false_color = st.columns(display_count)
-        
-        for i in range(display_count):
-            img_path = sat_files[i]
-            try:
-                if os.path.exists(img_path):
-                    img_rgb = Image.open(img_path).convert('RGB')
-                    # This simulates a false-color effect for visualization purposes
-                    img_false_color = img_rgb.point(lambda p: 255 - p)
-                    with cols_false_color[i]:
-                        st.image(img_false_color, caption=f"Sample {i+1}", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error loading image {i+1}: {str(e)}")
-    else:
-        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
-
-    st.markdown("#### 2. Deep Learning Model Training")
-    st.markdown("""
-    A Convolutional Neural Network (CNN) is a powerful tool for image analysis. Our model uses several layers to automatically learn features from the images. To avoid overfitting and achieve more realistic metrics, we use **data augmentation** to introduce variability into the training data.
-    """)
+    col1, col2 = st.columns(2)
     
-    if st.button("🚀 Train CNN Model", type="primary", key="train_cnn"):
-        st.info("Training CNN model...")
+    with col1:
+        epochs = st.slider("🔄 Training Epochs:", 5, 50, 20)
+        batch_size = st.selectbox("📦 Batch Size:", [16, 32, 64], index=1)
+    
+    with col2:
+        learning_rate = st.selectbox("📉 Learning Rate:", [0.0001, 0.00001, 0.000001], index=0)
+        train_split = st.slider("🎯 Training Split:", 0.6, 0.9, 0.8, 0.05)
+    
+    if st.button("🚀 Train Deep Learning Model", type="primary", key="train_cnn"):
+        sat_files = st.session_state.sat_files
         
-        if not sat_files:
+        if not sat_files or len(sat_files) < 10:
             st.info("No real satellite images available. Creating synthetic image data for CNN demonstration...")
             np.random.seed(42)
             num_samples = 200
-            processed_images = np.random.rand(num_samples, 128, 128, 3).astype(np.float32)
+            processed_images = np.random.rand(num_samples, 224, 224, 3).astype(np.float32)
             processed_labels = np.random.choice([0, 1], num_samples, p=[0.6, 0.4])
         else:
-            st.info("Preparing image data for CNN training. This may take a while...")
+            st.info("Preparing real satellite images for CNN training...")
             
             processed_images = []
             processed_labels = []
             
-            num_images_to_process = min(100, len(sat_files))
+            num_images_to_process = min(200, len(sat_files))
             progress_bar = st.progress(0)
+            status_text = st.empty()
 
             for i, img_path in enumerate(sat_files[:num_images_to_process]):
-                img_array = preprocess_image(img_path)
-                if img_array is not None:
-                    processed_images.append(img_array)
-                    # --- ADDED LABEL NOISE FOR REALISTIC TRAINING ---
-                    is_flood = 1.0 if 'flood' in img_path.lower() else 0.0
-                    label_with_noise = np.clip(is_flood + np.random.normal(0, 0.1), 0, 1)
-                    processed_labels.append(label_with_noise)
-                
-                if num_images_to_process > 0:
+                try:
+                    img = Image.open(img_path)
+                    img_array = preprocess_satellite_image(img)
+                    if img_array is not None:
+                        processed_images.append(img_array)
+                        is_flood = 1 if 'flood' in img_path.lower() else 0
+                        processed_labels.append(is_flood)
+                    
+                    status_text.text(f"Processing image {i+1}/{num_images_to_process}")
                     progress_bar.progress((i + 1) / num_images_to_process)
+                except Exception as e:
+                    continue
             
             progress_bar.empty()
+            status_text.empty()
             
             if not processed_images:
                 st.error("❌ No images were successfully processed for CNN training.")
                 st.stop()
+            
             processed_images = np.array(processed_images)
             processed_labels = np.array(processed_labels)
+            
+            st.success(f"✅ Processed {len(processed_images)} images for training!")
         
-        X_train_cnn, X_val_cnn, y_train_cnn, y_val_cnn = train_test_split(
-            processed_images, processed_labels, test_size=0.2, random_state=42
-        )
+        # Split data
+        split_idx = int(len(processed_images) * train_split)
+        X_train_cnn = processed_images[:split_idx]
+        y_train_cnn = processed_labels[:split_idx]
+        X_val_cnn = processed_images[split_idx:]
+        y_val_cnn = processed_labels[split_idx:]
+        
+        st.info(f"Training set: {len(X_train_cnn)} images, Validation set: {len(X_val_cnn)} images")
         
         with st.spinner("🔄 Training CNN model..."):
-            cnn_model = create_cnn_model()
+            cnn_model = create_advanced_cnn_model()
+            
+            # Update learning rate
+            cnn_model.optimizer.learning_rate = learning_rate
             
             st.markdown("##### 🏗️ Model Architecture")
             model_summary = []
             cnn_model.summary(print_fn=lambda x: model_summary.append(x))
-            st.text("\n".join(model_summary))
+            with st.expander("View Model Architecture"):
+                st.text("\n".join(model_summary))
             
             st.markdown("##### 📈 Training Progress")
-            epochs = 20
             
+            # Data augmentation
             datagen = ImageDataGenerator(
                 rotation_range=20,
                 width_shift_range=0.2,
@@ -836,14 +899,21 @@ elif page == "🛰️ Satellite Analysis":
                 fill_mode='nearest'
             )
             
+            # Train model
             history = cnn_model.fit(
-                datagen.flow(X_train_cnn, y_train_cnn, batch_size=32),
-                steps_per_epoch=len(X_train_cnn) / 32,
+                datagen.flow(X_train_cnn, y_train_cnn, batch_size=batch_size),
+                steps_per_epoch=len(X_train_cnn) // batch_size,
                 epochs=epochs,
                 validation_data=(X_val_cnn, y_val_cnn),
                 verbose=0
             )
-
+            
+            # Store model and history
+            st.session_state.cnn_model = cnn_model
+            st.session_state.cnn_history = history.history
+            st.session_state.cnn_trained = True
+            
+            # Plot training history
             train_loss = history.history["loss"]
             val_loss = history.history["val_loss"]
             train_acc = history.history["accuracy"]
@@ -856,17 +926,186 @@ elif page == "🛰️ Satellite Analysis":
             fig_training.add_trace(go.Scatter(y=val_acc, name="Validation Accuracy", line=dict(color="orange")), row=1, col=2)
             fig_training.update_layout(height=400, title_text="🧠 CNN Training History")
             st.plotly_chart(fig_training, use_container_width=True)
+            
             st.success("✅ CNN model training completed!")
             
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]/2:.4f}</h2></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]:.4f}</h2></div>""", unsafe_allow_html=True)
             with col2:
-                st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]*1.8:.2%}</h2></div>""", unsafe_allow_html=True)
+                st.markdown(f"""<div class="metric-container"><h4>📈 Train Accuracy</h4><h2>{train_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
             with col3:
                 st.markdown(f"""<div class="metric-container"><h4>🎯 Val Accuracy</h4><h2>{val_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
             with col4:
                 st.markdown(f"""<div class="metric-container"><h4>⚡ Parameters</h4><h2>{cnn_model.count_params():,}</h2></div>""", unsafe_allow_html=True)
+    
+    # Display sample images if available
+    if st.session_state.sat_files:
+        st.markdown("#### 🖼️ Sample Satellite Images")
+        
+        display_count = min(6, len(st.session_state.sat_files))
+        cols = st.columns(display_count)
+        
+        for i in range(display_count):
+            img_path = st.session_state.sat_files[i]
+            try:
+                img = Image.open(img_path)
+                img = img.resize((200, 200))
+                with cols[i]:
+                    st.image(img, caption=f"Image {i+1}", use_container_width=True)
+            except Exception as e:
+                continue
+
+# ==================== PAGE: IMAGE FLOOD DETECTION ====================
+
+elif page == "🖼️ Image Flood Detection":
+    st.markdown("### 🖼️ Upload Satellite Image for Flood Detection")
+    
+    st.markdown("""
+    Upload a satellite image to detect potential flood areas. The system will:
+    - Analyze the image using the trained deep learning model
+    - Generate false color composites to highlight water bodies
+    - Extract potential water masks
+    - Provide a flood probability assessment
+    """)
+    
+    uploaded_file = st.file_uploader(
+        "📤 Upload Satellite Image (JPG, PNG, or TIFF)",
+        type=['jpg', 'jpeg', 'png', 'tif', 'tiff'],
+        help="Upload a satellite image for flood detection analysis"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Load image
+            image = Image.open(uploaded_file)
+            
+            st.markdown("#### 🖼️ Original Image")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.image(image, caption="Original Satellite Image", use_container_width=True)
+            
+            # Create false color composite
+            with col2:
+                false_color = create_false_color_composite(image)
+                st.image(false_color, caption="False Color Composite", use_container_width=True)
+            
+            # Extract water mask
+            with col3:
+                water_mask = extract_water_mask(image)
+                st.image(water_mask, caption="Water Mask (Potential Flood)", use_container_width=True)
+            
+            st.markdown("---")
+            
+            # CNN Prediction
+            if st.session_state.cnn_trained:
+                st.markdown("#### 🤖 Deep Learning Analysis")
+                
+                # Preprocess image
+                processed_img = preprocess_satellite_image(image)
+                
+                if processed_img is not None:
+                    # Make prediction
+                    input_img = np.expand_dims(processed_img, axis=0)
+                    prediction = st.session_state.cnn_model.predict(input_img, verbose=0)[0][0]
+                    
+                    # Determine risk level
+                    if prediction < 0.3:
+                        risk_level = "🟢 Low Flood Risk"
+                        risk_color = "#4facfe"
+                    elif prediction < 0.7:
+                        risk_level = "🟡 Moderate Flood Risk"
+                        risk_color = "#fee140"
+                    else:
+                        risk_level = "🔴 High Flood Risk"
+                        risk_color = "#fa709a"
+                    
+                    col1, col2 = st.columns([1, 2])
+                    
+                    with col1:
+                        st.markdown(f"""
+                        <div class="metric-container" style="background: {risk_color};">
+                            <h3>🎯 Flood Probability</h3>
+                            <h1>{prediction:.1%}</h1>
+                            <h4>{risk_level}</h4>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col2:
+                        # Create gauge chart
+                        fig_gauge = go.Figure(go.Indicator(
+                            mode="gauge+number+delta",
+                            value=prediction * 100,
+                            domain={'x': [0, 1], 'y': [0, 1]},
+                            title={'text': "Flood Risk Assessment"},
+                            delta={'reference': 50},
+                            gauge={
+                                'axis': {'range': [None, 100]},
+                                'bar': {'color': risk_color},
+                                'steps': [
+                                    {'range': [0, 30], 'color': "lightgreen"},
+                                    {'range': [30, 70], 'color': "lightyellow"},
+                                    {'range': [70, 100], 'color': "lightcoral"}
+                                ],
+                                'threshold': {
+                                    'line': {'color': "red", 'width': 4},
+                                    'thickness': 0.75,
+                                    'value': 70
+                                }
+                            }
+                        ))
+                        fig_gauge.update_layout(height=300)
+                        st.plotly_chart(fig_gauge, use_container_width=True)
+                    
+                    st.markdown("#### 📊 Analysis Details")
+                    
+                    analysis_details = {
+                        "Image Dimensions": f"{image.size[0]} x {image.size[1]} pixels",
+                        "Flood Probability": f"{prediction:.2%}",
+                        "Risk Classification": risk_level,
+                        "Confidence Level": "High" if prediction < 0.2 or prediction > 0.8 else "Moderate",
+                        "Recommendation": "Immediate monitoring required" if prediction > 0.7 else "Continue regular monitoring"
+                    }
+                    
+                    st.json(analysis_details)
+                    
+                else:
+                    st.error("❌ Error preprocessing image for CNN prediction")
+            else:
+                st.warning("⚠️ Please train the CNN model first in the 'Satellite Analysis' section")
+                
+                st.markdown("#### 📊 Traditional Image Analysis")
+                st.info("Using traditional computer vision techniques for water detection...")
+                
+                # Calculate percentage of potential water area
+                water_mask_gray = np.array(water_mask.convert('L'))
+                water_percentage = (np.sum(water_mask_gray > 0) / water_mask_gray.size) * 100
+                
+                st.markdown(f"""
+                <div class="metric-container">
+                    <h3>💧 Potential Water Area</h3>
+                    <h1>{water_percentage:.1f}%</h1>
+                </div>
+                """, unsafe_allow_html=True)
+                
+        except Exception as e:
+            st.error(f"❌ Error processing image: {str(e)}")
+    else:
+        st.info("👆 Please upload a satellite image to begin flood detection analysis")
+        
+        # Show example
+        st.markdown("#### 💡 Example Use Cases")
+        st.markdown("""
+        This tool can analyze:
+        - 🛰️ Sentinel-1 SAR imagery
+        - 🛰️ Sentinel-2 multispectral imagery
+        - 🌍 Landsat imagery
+        - 📸 Aerial photography
+        - 🚁 Drone imagery of flood-prone areas
+        """)
+
+# ==================== PAGE: RESULTS DASHBOARD ====================
 
 elif page == "📈 Results Dashboard":
     st.markdown("### 📈 Results Dashboard")
@@ -959,119 +1198,7 @@ elif page == "📈 Results Dashboard":
             fig_time.update_layout(height=400)
             st.plotly_chart(fig_time, use_container_width=True)
         
-        st.markdown("#### 🔄 Cross-Validation Analysis")
-        
-        cv_fig = px.scatter(
-            perf_df,
-            x='CV Mean',
-            y='CV Std',
-            size='R² Score',
-            color='Model',
-            title='🎯 Cross-Validation Performance (Mean vs Std)',
-            hover_data=['R² Score', 'RMSE']
-        )
-        cv_fig.update_layout(height=400)
-        st.plotly_chart(cv_fig, use_container_width=True)
-        
-        st.markdown("#### 🔍 Prediction Analysis")
-        
-        selected_model = st.selectbox(
-            "Choose model for detailed analysis:",
-            list(results.keys()),
-            index=0
-        )
-        
-        if selected_model:
-            model_data = results[selected_model]
-            y_test = st.session_state.y_test
-            y_pred = model_data['Predictions']
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig_scatter = px.scatter(
-                    x=y_test,
-                    y=y_pred,
-                    title=f'🎯 {selected_model}: Predictions vs Actual',
-                    labels={'x': 'Actual Values', 'y': 'Predicted Values'},
-                    color=np.abs(y_test - y_pred),
-                    color_continuous_scale='RdYlGn_r'
-                )
-                
-                min_val = min(y_test.min(), y_pred.min())
-                max_val = max(y_test.max(), y_pred.max())
-                fig_scatter.add_trace(
-                    go.Scatter(
-                        x=[min_val, max_val],
-                        y=[min_val, max_val],
-                        mode='lines',
-                        name='Perfect Prediction',
-                        line=dict(color='red', dash='dash')
-                    )
-                )
-                
-                st.plotly_chart(fig_scatter, use_container_width=True)
-            
-            with col2:
-                residuals = y_test - y_pred
-                fig_residuals = px.scatter(
-                    x=y_pred,
-                    y=residuals,
-                    title=f'📊 {selected_model}: Residuals Plot',
-                    labels={'x': 'Predicted Values', 'y': 'Residuals'},
-                    color=np.abs(residuals),
-                    color_continuous_scale='Reds'
-                )
-                
-                fig_residuals.add_hline(y=0, line_dash="dash", line_color="red")
-                
-                st.plotly_chart(fig_residuals, use_container_width=True)
-        
-        st.markdown("#### 🎯 Feature Importance Analysis")
-        
-        tree_models = ['🌳 Random Forest', '🚀 XGBoost', '💡 LightGBM', '🎯 CatBoost', '⚡ Gradient Boosting', '🌿 Decision Tree']
-        available_tree_models = [m for m in tree_models if m in results]
-        
-        if available_tree_models:
-            importance_model = st.selectbox(
-                "Select model for feature importance:",
-                available_tree_models
-            )
-            
-            if importance_model:
-                model = results[importance_model]['Model']
-                
-                if hasattr(model, 'feature_importances_') and len(model.feature_importances_) <= len(st.session_state.X_test.columns):
-                    if len(model.feature_importances_) == len(st.session_state.X_test.columns):
-                        importances = model.feature_importances_
-                        feature_names_for_importance = st.session_state.X_test.columns
-                    else:
-                        importances = model.feature_importances_
-                        feature_names_for_importance = [f'PC_{i+1}' for i in range(len(importances))]
-                else:
-                    importances = np.random.rand(len(st.session_state.X_test.columns))
-                    feature_names_for_importance = st.session_state.X_test.columns
-
-                importance_df = pd.DataFrame({
-                    'Feature': feature_names_for_importance,
-                    'Importance': importances
-                }).sort_values('Importance', ascending=False)
-                
-                fig_importance = px.bar(
-                    importance_df.head(15),
-                    x='Importance',
-                    y='Feature',
-                    orientation='h',
-                    title=f'🎯 {importance_model}: Top 15 Feature Importances',
-                    color='Importance',
-                    color_continuous_scale='Viridis'
-                )
-                fig_importance.update_layout(height=600)
-                st.plotly_chart(fig_importance, use_container_width=True)
-                
-                st.markdown("##### 🏆 Top 10 Most Important Features")
-                st.dataframe(importance_df.head(10), use_container_width=True)
-        
+        # Export results
         st.markdown("#### 💾 Export Results")
         
         if st.button("📥 Download Results", type="secondary", key="download_results"):
@@ -1088,13 +1215,24 @@ elif page == "📈 Results Dashboard":
                 }
             
             st.download_button(
-                label="Download model_results.json",
+                label="Download JSON Results",
                 data=json.dumps(results_json, indent=4),
-                file_name="model_results.json",
+                file_name="floodsentinel_results.json",
                 mime="application/json"
             )
+            
+            # Also offer CSV download
+            csv_buffer = io.StringIO()
+            perf_df.to_csv(csv_buffer, index=False)
+            st.download_button(
+                label="Download CSV Results",
+                data=csv_buffer.getvalue(),
+                file_name="floodsentinel_results.csv",
+                mime="text/csv"
+            )
 
-# Sidebar information
+# ==================== SIDEBAR INFORMATION ====================
+
 st.sidebar.markdown("---")
 
 if st.session_state.dataset_loaded:
@@ -1103,10 +1241,15 @@ else:
     st.sidebar.error("❌ Datasets Not Loaded")
 
 if st.session_state.models_trained:
-    st.sidebar.success("✅ Models Trained")
+    st.sidebar.success("✅ ML Models Trained")
     st.sidebar.info(f"🎯 {len(st.session_state.model_results)} models ready")
 else:
-    st.sidebar.error("❌ Models Not Trained")
+    st.sidebar.error("❌ ML Models Not Trained")
+
+if st.session_state.cnn_trained:
+    st.sidebar.success("✅ CNN Model Trained")
+else:
+    st.sidebar.error("❌ CNN Model Not Trained")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎯 Quick Stats")
@@ -1123,29 +1266,14 @@ st.sidebar.info("""
 - 📊 Real-time risk assessment
 - 🎯 Interactive visualizations
 - 📈 Comprehensive performance analysis
+- 🖼️ Image-based flood detection
 """)
+
+# ==================== FOOTER ====================
 
 st.markdown("---")
 st.markdown("""
-    <style>
-        .footer {
-            position: relative;
-            left: 0;
-            bottom: 0;
-            width: 100%;
-            background-color: transparent;
-            color: #888;
-            text-align: center;
-            padding: 10px;
-            font-size: 0.9em;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        .footer:hover {
-            background-color: #f0f2f6;
-            color: #2a5298;
-        }
-    </style>
     <div class="footer">
-        <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>
+        <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel - AI-Powered Flood Risk Assessment</p>
     </div>
 """, unsafe_allow_html=True)
