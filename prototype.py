@@ -40,6 +40,26 @@ st.set_page_config(
 import os
 os.system('kaggle kernels output subhojeetroy01/flood-prediction-models-performance-comparison -p pretrained_models/')
 
+models_dir = 'pretrained_models'
+
+# Line 43: Find the downloaded archive (it's often a ZIP file from Kaggle)
+# We assume the Kaggle command downloads a single ZIP file into the directory
+downloaded_files = os.listdir(models_dir)
+zip_file = next((f for f in downloaded_files if f.endswith('.zip')), None)
+
+if zip_file:
+    zip_path = os.path.join(models_dir, zip_file)
+    print(f"Found archive: {zip_path}. Extracting...")
+    
+    # Line 44: Extract the contents of the archive
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        # Extract all contents to the same directory
+        zip_ref.extractall(models_dir)
+    
+    print("Extraction complete. Cleaning up archive.")
+    # Optional: Remove the zip file after extraction
+    os.remove(zip_path)
+
 # ==================== CUSTOM CSS ====================
 st.markdown("""
 <style>
