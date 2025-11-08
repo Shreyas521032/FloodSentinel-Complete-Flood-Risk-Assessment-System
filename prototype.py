@@ -723,7 +723,7 @@ def load_datasets_from_kaggle():
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
             def load_data(path="dataset/flood dataset.csv"):
-                return pd.read_csv(path)
+                return pd.read_csv(path_tabular)
             path_sat = kagglehub.dataset_download("rhythmroy/sen12flood-flood-detection-dataset")
             st.success(f"✅ Satellite imagery data downloaded to: {path_sat}")
             
