@@ -416,7 +416,6 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
         'lasso.pkl': '🔗 Lasso',
         'k_neighbors_regressor.pkl': '👥 K-Neighbors',
         'decision_tree_regressor.pkl': '🌿 Decision Tree',
-        'gradient_boosting_regressor.pkl': '⚡ Gradient Boosting',
         'xgboost_regressor.pkl': '🚀 XGBoost',
         'lightgbm_regressor.pkl': '💡 LightGBM',
         'catboost_regressor.pkl': '🎯 CatBoost',
