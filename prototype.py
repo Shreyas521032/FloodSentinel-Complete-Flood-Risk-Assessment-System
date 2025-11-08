@@ -1141,4 +1141,64 @@ st.markdown("""
         <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>
         Project: FloodSentinel</p>
     </div>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True).markdown("""
+        <div class="warning-box">
+            <h4>🚀 Key Features</h4>
+            <ul>
+                <li>⚙️ 12 Pre-trained ML algorithms</li>
+                <li>🛰️ Ensemble deep learning models</li>
+                <li>📊 Context-aware flood detection</li>
+                <li>🎯 Fire/vegetation filtering</li>
+                <li>📈 Interactive visualizations</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("### 📊 Dataset Loading")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Load from Kaggle", type="primary", key="load_kaggle"):
+            df_flood, sat_files = load_datasets_from_kaggle()
+            if df_flood is not None:
+                st.session_state.df_flood = df_flood
+                st.session_state.sat_files = sat_files
+                st.session_state.dataset_loaded = True
+                st.rerun()
+    
+    with col2:
+        if st.button("📊 Use Sample Data", type="secondary", key="load_sample"):
+            st.session_state.df_flood = create_sample_data()
+            st.session_state.sat_files = []
+            st.session_state.dataset_loaded = True
+            st.success("✅ Sample dataset loaded successfully!")
+            st.rerun()
+    
+    if st.session_state.dataset_loaded:
+        st.success(f"✅ Dataset loaded with {len(st.session_state.df_flood)} records!")
+        st.dataframe(st.session_state.df_flood.head(), use_container_width=True)
+
+# ==================== PAGE: DATA ANALYSIS ====================
+
+elif page == "📊 Data Analysis":
+    st.markdown("### 📊 Exploratory Data Analysis")
+    
+    if not st.session_state.dataset_loaded:
+        st.warning("⚠️ Please load datasets first from the Home page")
+        st.stop()
+    
+    df = st.session_state.df_flood
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h3>📋 Records</h3>
+            <h2>{len(df)}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st
