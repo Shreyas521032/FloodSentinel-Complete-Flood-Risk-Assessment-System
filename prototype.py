@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.decomposition import PCA
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 import kagglehub
 import warnings
 import os
@@ -151,8 +151,20 @@ def decompress_model(compressed_path):
                 with gzip.open(compressed_path, 'rb') as f_in:
                     decompressed_data = f_in.read()
                     tmp_file.write(decompressed_data)
+                    tmp_file.flush()  # Ensure data is written
                     st.success(f"✅ Decompressed to {len(decompressed_data) / (1024*1024):.2f} MB")
-                return tmp_file.name
+                
+                # Verify the decompressed file is valid
+                try:
+                    test_load = torch.load(tmp_file.name, map_location='cpu', weights_only=False)
+                    st.success("✅ File verified as valid PyTorch checkpoint")
+                    return tmp_file.name
+                except Exception as verify_err:
+                    st.error(f"❌ Decompressed file is not a valid PyTorch checkpoint: {str(verify_err)[:100]}")
+                    st.info("💡 Your .gz file may contain raw model weights instead of a PyTorch state dict")
+                    os.unlink(tmp_file.name)
+                    return None
+                    
             except gzip.BadGzipFile:
                 st.error(f"❌ Invalid gzip file: {compressed_path}")
                 st.info("💡 The file might not be gzip compressed or is corrupted")
@@ -190,15 +202,22 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
                     
                     # Try loading with different map_location strategies
                     try:
-                        state_dict = torch.load(decompressed, map_location=device)
-                        resnet.load_state_dict(state_dict)
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        resnet.load_state_dict(state_dict, strict=False)
                         resnet.to(device)
                         resnet.eval()
                         loaded_models['resnet'] = resnet
                         st.success("✅ ResNet-50 loaded successfully")
                     except Exception as load_err:
-                        st.error(f"❌ Error loading ResNet weights: {str(load_err)}")
-                        st.info("💡 The model file may be corrupted or incompatible")
+                        st.error(f"❌ Error loading ResNet weights: {str(load_err)[:200]}")
+                        st.info("💡 Try re-saving your model: `torch.save(model.state_dict(), 'model.pth')`")
                     
                     # Clean up temp file
                     try:
@@ -222,14 +241,21 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
                     densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
                     
                     try:
-                        state_dict = torch.load(decompressed, map_location=device)
-                        densenet.load_state_dict(state_dict)
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        densenet.load_state_dict(state_dict, strict=False)
                         densenet.to(device)
                         densenet.eval()
                         loaded_models['densenet'] = densenet
                         st.success("✅ DenseNet-121 loaded successfully")
                     except Exception as load_err:
-                        st.error(f"❌ Error loading DenseNet weights: {str(load_err)}")
+                        st.error(f"❌ Error loading DenseNet weights: {str(load_err)[:200]}")
                     
                     try:
                         os.unlink(decompressed)
@@ -248,17 +274,26 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
             if decompressed:
                 try:
                     st.info("🔄 Loading Vision Transformer architecture...")
-                    vit = timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
+                    # Import timm here to avoid scope issues
+                    import timm as timm_module
+                    vit = timm_module.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
                     
                     try:
-                        state_dict = torch.load(decompressed, map_location=device)
-                        vit.load_state_dict(state_dict)
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        vit.load_state_dict(state_dict, strict=False)
                         vit.to(device)
                         vit.eval()
                         loaded_models['vit'] = vit
                         st.success("✅ Vision Transformer loaded successfully")
                     except Exception as load_err:
-                        st.error(f"❌ Error loading ViT weights: {str(load_err)}")
+                        st.error(f"❌ Error loading ViT weights: {str(load_err)[:200]}")
                     
                     try:
                         os.unlink(decompressed)
@@ -278,15 +313,22 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
                 st.info(f"🔄 Loading EfficientNet ({file_size / (1024*1024):.2f} MB)...")
                 
                 # Load the state dict first to inspect it
-                state_dict = torch.load(efficientnet_path, map_location=device)
+                state_dict = torch.load(efficientnet_path, map_location=device, weights_only=False)
+                
+                # Handle different checkpoint formats
+                if isinstance(state_dict, dict):
+                    if 'state_dict' in state_dict:
+                        state_dict = state_dict['state_dict']
+                    elif 'model_state_dict' in state_dict:
+                        state_dict = state_dict['model_state_dict']
                 
                 # Try to determine the architecture from keys
                 if 'blocks.0.0.conv_dw.weight' in state_dict:
                     # timm EfficientNet structure
                     st.info("Detected timm EfficientNet architecture")
                     try:
-                        import timm
-                        efficientnet = timm.create_model('efficientnet_b0', pretrained=False, num_classes=2)
+                        import timm as timm_module
+                        efficientnet = timm_module.create_model('efficientnet_b0', pretrained=False, num_classes=2)
                         efficientnet.load_state_dict(state_dict, strict=False)
                         efficientnet.to(device)
                         efficientnet.eval()
@@ -356,15 +398,12 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
             
             1. **For PyTorch models (.pth.gz files):**
                ```python
-               # Your files may not be properly gzipped. To fix:
+               # Your files may not be properly saved. To fix:
                import torch
                import gzip
                
-               # Load original model
-               model = torch.load('model.pth')
-               
-               # Save properly
-               torch.save(model, 'temp.pth')
+               # Save model state dict
+               torch.save(model.state_dict(), 'temp.pth')
                
                # Compress with gzip
                with open('temp.pth', 'rb') as f_in:
@@ -487,7 +526,7 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
           - This is a known issue with numpy 2.x vs 1.x
           - The model can be re-saved with: `joblib.dump(model, 'model.pkl', protocol=4)`
         
-        **Continue anyway?** Yes! The other 9 models work fine for predictions.
+        **Continue anyway?** Yes! The other models work fine for predictions.
         """)
     
     return loaded_models
@@ -1036,16 +1075,30 @@ elif page == "⚙️ Model Training":
                     try:
                         y_pred = model.predict(X_test_pca)
                         
+                        # Regression metrics
                         mse = mean_squared_error(y_test, y_pred)
                         rmse = np.sqrt(mse)
                         mae = mean_absolute_error(y_test, y_pred)
                         r2 = r2_score(y_test, y_pred)
+                        
+                        # Classification metrics (threshold at 0.5)
+                        y_pred_class = (y_pred >= 0.5).astype(int)
+                        y_test_class = (y_test >= 0.5).astype(int)
+                        
+                        accuracy = accuracy_score(y_test_class, y_pred_class)
+                        precision = precision_score(y_test_class, y_pred_class, zero_division=0)
+                        recall = recall_score(y_test_class, y_pred_class, zero_division=0)
+                        f1 = f1_score(y_test_class, y_pred_class, zero_division=0)
                         
                         st.session_state.model_results[model_name] = {
                             "MSE": mse,
                             "RMSE": rmse,
                             "MAE": mae,
                             "R²": r2,
+                            "Accuracy": accuracy,
+                            "Precision": precision,
+                            "Recall": recall,
+                            "F1_Score": f1,
                             "CV_Mean": r2,
                             "CV_Std": 0.0,
                             "Training_Time": 0.0,
@@ -1075,20 +1128,20 @@ elif page == "⚙️ Model Training":
             st.success(f"✅ {len(model_names)} tabular models ready")
             
             for name in model_names:
-                r2_score = st.session_state.model_results[name]['R²']
-                if r2_score > 0.8:
-                    st.markdown(f"🟢 {name}: R² = {r2_score:.4f}")
-                elif r2_score > 0.6:
-                    st.markdown(f"🟡 {name}: R² = {r2_score:.4f}")
+                acc = st.session_state.model_results[name]['Accuracy']
+                if acc > 0.85:
+                    st.markdown(f"🟢 {name}: Accuracy = {acc:.2%}")
+                elif acc > 0.70:
+                    st.markdown(f"🟡 {name}: Accuracy = {acc:.2%}")
                 else:
-                    st.markdown(f"🟠 {name}: R² = {r2_score:.4f}")
+                    st.markdown(f"🟠 {name}: Accuracy = {acc:.2%}")
         
         with col2:
             st.info("**Model Performance Legend:**")
             st.markdown("""
-            - 🟢 Excellent (R² > 0.80)
-            - 🟡 Good (R² > 0.60)
-            - 🟠 Fair (R² < 0.60)
+            - 🟢 Excellent (Accuracy > 85%)
+            - 🟡 Good (Accuracy > 70%)
+            - 🟠 Fair (Accuracy < 70%)
             
             **Note:** Missing models like Gradient Boosting won't affect predictions - the ensemble uses available models.
             """)
@@ -1229,7 +1282,7 @@ elif page == "🛰️ Satellite Analysis":
         for model_name in st.session_state.ensemble_models.keys():
             model_info.append({
                 'Component': model_name,
-                'Type': 'CNN' if model_name in ['resnet', 'densenet', 'vit'] else 'Ensemble',
+                'Type': 'CNN' if model_name in ['resnet', 'densenet', 'vit', 'efficientnet'] else 'Ensemble',
                 'Status': '✅ Ready'
             })
         
@@ -1364,6 +1417,7 @@ elif page == "🖼️ Image Flood Detection":
                             st.metric(model_name.upper(), f"{pred:.2%}")
                     
                     with col2:
+                        # Gauge chart
                         fig_gauge = go.Figure(go.Indicator(
                             mode="gauge+number",
                             value=ensemble_pred * 100,
@@ -1380,6 +1434,61 @@ elif page == "🖼️ Image Flood Detection":
                             }
                         ))
                         st.plotly_chart(fig_gauge, use_container_width=True)
+                    
+                    # Model comparison visualization
+                    st.markdown("#### 📊 Model Comparison")
+                    
+                    if len(predictions) > 1:
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Bar chart comparison
+                            model_names = list(predictions.keys())
+                            model_preds = [predictions[m] * 100 for m in model_names]
+                            
+                            fig_compare = px.bar(
+                                x=model_names,
+                                y=model_preds,
+                                title="🔍 Individual Model Predictions",
+                                labels={'x': 'Model', 'y': 'Flood Probability (%)'},
+                                color=model_preds,
+                                color_continuous_scale='RdYlGn_r'
+                            )
+                            fig_compare.add_hline(y=ensemble_pred * 100, line_dash="dash", 
+                                                line_color="red", annotation_text="Ensemble")
+                            st.plotly_chart(fig_compare, use_container_width=True)
+                        
+                        with col2:
+                            # Radar chart for model agreement
+                            fig_radar = go.Figure()
+                            
+                            fig_radar.add_trace(go.Scatterpolar(
+                                r=model_preds,
+                                theta=model_names,
+                                fill='toself',
+                                name='Predictions'
+                            ))
+                            
+                            fig_radar.update_layout(
+                                polar=dict(
+                                    radialaxis=dict(visible=True, range=[0, 100])
+                                ),
+                                title="🎯 Model Consensus View"
+                            )
+                            st.plotly_chart(fig_radar, use_container_width=True)
+                        
+                        # Statistics
+                        st.markdown("##### 📈 Prediction Statistics")
+                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                        
+                        with stat_col1:
+                            st.metric("Mean", f"{np.mean(model_preds):.1f}%")
+                        with stat_col2:
+                            st.metric("Std Dev", f"{np.std(model_preds):.1f}%")
+                        with stat_col3:
+                            st.metric("Min", f"{np.min(model_preds):.1f}%")
+                        with stat_col4:
+                            st.metric("Max", f"{np.max(model_preds):.1f}%")
                     
                     st.info(f"💡 Analysis: {context['reason']}")
                     
@@ -1426,40 +1535,107 @@ elif page == "📈 Results Dashboard":
     for model_name, metrics in results.items():
         perf_data.append({
             'Model': model_name,
-            'R² Score': metrics['R²'],
+            'Accuracy': metrics['Accuracy'],
+            'Precision': metrics['Precision'],
+            'Recall': metrics['Recall'],
+            'F1 Score': metrics['F1_Score'],
             'RMSE': metrics['RMSE'],
             'MAE': metrics['MAE'],
         })
     
     perf_df = pd.DataFrame(perf_data)
-    perf_df = perf_df.sort_values('R² Score', ascending=False)
+    perf_df = perf_df.sort_values('Accuracy', ascending=False)
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if len(perf_df) > 0:
             best = perf_df.iloc[0]
-            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best['Model']}</h3><p>R²: {best['R² Score']:.4f}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best['Model']}</h3><p>Accuracy: {best['Accuracy']:.2%}</p></div>""", unsafe_allow_html=True)
     
     with col2:
-        avg_r2 = perf_df['R² Score'].mean()
-        st.markdown(f"""<div class="metric-container"><h4>📊 Average R²</h4><h2>{avg_r2:.4f}</h2></div>""", unsafe_allow_html=True)
+        avg_acc = perf_df['Accuracy'].mean()
+        st.markdown(f"""<div class="metric-container"><h4>📊 Average Accuracy</h4><h2>{avg_acc:.2%}</h2></div>""", unsafe_allow_html=True)
     
     with col3:
         st.markdown(f"""<div class="metric-container"><h4>🎯 Models</h4><h2>{len(perf_df)}</h2></div>""", unsafe_allow_html=True)
     
-    st.dataframe(perf_df, use_container_width=True)
+    st.dataframe(perf_df.style.format({
+        'Accuracy': '{:.2%}',
+        'Precision': '{:.2%}',
+        'Recall': '{:.2%}',
+        'F1 Score': '{:.4f}',
+        'RMSE': '{:.4f}',
+        'MAE': '{:.4f}'
+    }), use_container_width=True)
     
-    fig_r2 = px.bar(
-        perf_df.sort_values('R² Score'),
-        x='R² Score',
-        y='Model',
-        orientation='h',
-        title='🎯 R² Score Comparison',
-        color='R² Score',
-        color_continuous_scale='Viridis'
-    )
-    st.plotly_chart(fig_r2, use_container_width=True)
+    # Multiple comparison charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig_acc = px.bar(
+            perf_df.sort_values('Accuracy'),
+            x='Accuracy',
+            y='Model',
+            orientation='h',
+            title='🎯 Model Accuracy Comparison',
+            color='Accuracy',
+            color_continuous_scale='Viridis'
+        )
+        st.plotly_chart(fig_acc, use_container_width=True)
+    
+    with col2:
+        fig_f1 = px.bar(
+            perf_df.sort_values('F1 Score'),
+            x='F1 Score',
+            y='Model',
+            orientation='h',
+            title='📊 F1 Score Comparison',
+            color='F1 Score',
+            color_continuous_scale='Plasma'
+        )
+        st.plotly_chart(fig_f1, use_container_width=True)
+    
+    # Additional metrics visualization
+    st.markdown("#### 📉 Detailed Metrics Comparison")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Precision vs Recall scatter
+        fig_scatter = px.scatter(
+            perf_df,
+            x='Precision',
+            y='Recall',
+            size='F1 Score',
+            color='Accuracy',
+            hover_data=['Model'],
+            title='🎯 Precision vs Recall',
+            color_continuous_scale='Viridis'
+        )
+        st.plotly_chart(fig_scatter, use_container_width=True)
+    
+    with col2:
+        # Error metrics
+        fig_error = go.Figure()
+        fig_error.add_trace(go.Bar(
+            name='RMSE',
+            x=perf_df['Model'],
+            y=perf_df['RMSE'],
+            marker_color='indianred'
+        ))
+        fig_error.add_trace(go.Bar(
+            name='MAE',
+            x=perf_df['Model'],
+            y=perf_df['MAE'],
+            marker_color='lightsalmon'
+        ))
+        fig_error.update_layout(
+            title='📉 Error Metrics Comparison',
+            barmode='group',
+            xaxis_tickangle=-45
+        )
+        st.plotly_chart(fig_error, use_container_width=True)
 
 # ==================== SIDEBAR STATUS ====================
 
