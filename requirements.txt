@@ -15,6 +15,7 @@ Pillow
 opencv-python-headless
 scikit-image
 kagglehub
+timm
 tqdm
 requests
 urllib3
