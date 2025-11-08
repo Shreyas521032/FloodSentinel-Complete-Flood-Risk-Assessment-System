@@ -152,15 +152,8 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Model configurations
-        model_configs = {
-            'resnet': ('model_compressed_resnet_model_checkpoint.pth.gz', torch_models.resnet50, 2048),
-            'densenet': ('model_compressed_densenet_model_checkpoint.pth.gz', torch_models.densenet121, 1024),
-            'vit': ('model_compressed.pth.gz', None, None),  # ViT uses timm
-        }
-        
         # Load ResNet
-        resnet_path = os.path.join(models_dir, model_configs['resnet'][0])
+        resnet_path = os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz")
         if os.path.exists(resnet_path):
             decompressed = decompress_model(resnet_path)
             if decompressed:
@@ -174,7 +167,7 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
                 st.success("✅ ResNet-50 loaded")
         
         # Load DenseNet
-        densenet_path = os.path.join(models_dir, model_configs['densenet'][0])
+        densenet_path = os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz")
         if os.path.exists(densenet_path):
             decompressed = decompress_model(densenet_path)
             if decompressed:
@@ -188,7 +181,7 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
                 st.success("✅ DenseNet-121 loaded")
         
         # Load ViT
-        vit_path = os.path.join(models_dir, model_configs['vit'][0])
+        vit_path = os.path.join(models_dir, "model_compressed.pth.gz")
         if os.path.exists(vit_path):
             decompressed = decompress_model(vit_path)
             if decompressed:
@@ -283,7 +276,6 @@ def detect_water_features(image):
     
     # Convert to different color spaces
     hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
-    lab = cv2.cvtColor(img_array, cv2.COLOR_RGB2LAB)
     
     # Water detection in HSV (dark areas with low saturation)
     lower_water_hsv = np.array([0, 0, 0])
@@ -604,6 +596,66 @@ if page == "🏠 Home":
         <div class="success-box">
             <h4>🎯 Our Solution</h4>
             <p>FloodSentinel combines machine learning for historical tabular data with deep neural networks for satellite imagery analysis.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div class="warning-box">
+            <h4>🚀 Key Features</h4>
+            <ul>
+                <li>⚙️ 12 Pre-trained ML algorithms</li>
+                <li>🛰️ Ensemble deep learning models</li>
+                <li>📊 Context-aware flood detection</li>
+                <li>🎯 Fire/vegetation filtering</li>
+                <li>📈 Interactive visualizations</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("### 📊 Dataset Loading")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Load from Kaggle", type="primary", key="load_kaggle"):
+            df_flood, sat_files = load_datasets_from_kaggle()
+            if df_flood is not None:
+                st.session_state.df_flood = df_flood
+                st.session_state.sat_files = sat_files
+                st.session_state.dataset_loaded = True
+                st.rerun()
+    
+    with col2:
+        if st.button("📊 Use Sample Data", type="secondary", key="load_sample"):
+            st.session_state.df_flood = create_sample_data()
+            st.session_state.sat_files = []
+            st.session_state.dataset_loaded = True
+            st.success("✅ Sample dataset loaded successfully!")
+            st.rerun()
+    
+    if st.session_state.dataset_loaded:
+        st.success(f"✅ Dataset loaded with {len(st.session_state.df_flood)} records!")
+        st.dataframe(st.session_state.df_flood.head(), use_container_width=True)
+
+# ==================== PAGE: DATA ANALYSIS ====================
+
+elif page == "📊 Data Analysis":
+    st.markdown("### 📊 Exploratory Data Analysis")
+    
+    if not st.session_state.dataset_loaded:
+        st.warning("⚠️ Please load datasets first from the Home page")
+        st.stop()
+    
+    df = st.session_state.df_flood
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h3>📋 Records</h3>
+            <h2>{len(df)}</h2>
         </div>
         """, unsafe_allow_html=True)
     
@@ -1098,7 +1150,7 @@ elif page == "📈 Results Dashboard":
     with col1:
         if len(perf_df) > 0:
             best = perf_df.iloc[0]
-            st.markdown(f"""<div class="metric-container"><h4>🥇 Best</h4><h3>{best['Model']}</h3><p>R²: {best['R² Score']:.4f}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best['Model']}</h3><p>R²: {best['R² Score']:.4f}</p></div>""", unsafe_allow_html=True)
     
     with col2:
         avg_r2 = perf_df['R² Score'].mean()
@@ -1120,7 +1172,7 @@ elif page == "📈 Results Dashboard":
     )
     st.plotly_chart(fig_r2, use_container_width=True)
 
-# ==================== SIDEBAR ====================
+# ==================== SIDEBAR STATUS ====================
 
 st.sidebar.markdown("---")
 
@@ -1150,23 +1202,12 @@ st.sidebar.info("""
 - Ensemble predictions
 """)
 
+# ==================== FOOTER ====================
+
 st.markdown("---")
 st.markdown("""
     <div class="footer">
         <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>
         Project: FloodSentinel</p>
     </div>
-""", unsafe_allow_html=True).markdown("""
-        <div class="warning-box">
-            <h4>🚀 Key Features</h4>
-            <ul>
-                <li>⚙️ 12 Pre-trained ML algorithms</li>
-                <li>🛰️ Ensemble deep learning models</li>
-                <li>📊 Context-aware flood detection</li>
-                <li>🎯 Fire/vegetation filtering</li>
-                <li>📈 Interactive visualizations</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-    
-   
+""", unsafe_allow_html=True)
