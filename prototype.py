@@ -764,8 +764,6 @@ def load_datasets_from_kaggle():
     except Exception as e:
         st.error(f"❌ Error loading datasets: {str(e)}")
         return None, []
-    model_path = os.path.join(path_models, "densenet_model_checkpoint.pth")
-        st.write(f"Model file located at: {model_path}")
 
 def create_sample_data():
     """Create sample flood prediction data"""
