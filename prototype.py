@@ -1295,7 +1295,7 @@ elif page == "🛰️ Satellite Analysis":
     
     models_dir = st.text_input("DL models directory path:", value="pretrained_models")
     if st.button("🔍 Check Models Directory", type="secondary"):
-    check_models_directory(models_dir)
+        check_models_directory(models_dir)
     if st.button("🔄 Load DL Models", type="primary"):
     with st.spinner("Decompressing and loading models..."):
         # First check what's there
