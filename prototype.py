@@ -686,6 +686,7 @@ def predict_with_ensemble(image, models_dict):
         }
     
     predictions = {}
+    cnn_features = []
     
     # Preprocess image
     img_array = preprocess_for_flood_detection(image)
@@ -695,7 +696,7 @@ def predict_with_ensemble(image, models_dict):
     # Convert to tensor for PyTorch models
     img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0).float().to(device)
     
-    # Get predictions from each model
+    # Get predictions from each CNN model
     with torch.no_grad():
         for model_name in ['resnet', 'densenet', 'vit', 'efficientnet']:
             if model_name in models_dict:
@@ -703,8 +704,31 @@ def predict_with_ensemble(image, models_dict):
                     output = models_dict[model_name](img_tensor)
                     prob = torch.softmax(output, dim=1)[0, 1].cpu().numpy()
                     predictions[model_name] = float(prob)
+                    cnn_features.append(prob)
                 except Exception as e:
                     st.warning(f"⚠️ Error with {model_name}: {str(e)}")
+    
+    # Try to use ensemble models if CNN features are available
+    if len(cnn_features) > 0 and len(cnn_features) == 4:  # All 4 CNNs loaded
+        cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
+        
+        # Try meta models
+        for meta_name in ['meta_model', 'xgb_meta_model']:
+            if meta_name in models_dict:
+                try:
+                    meta_pred = models_dict[meta_name].predict(cnn_feature_vector)[0]
+                    predictions[f"{meta_name}_ensemble"] = float(meta_pred)
+                except Exception as e:
+                    pass  # Silently skip if incompatible
+        
+        # Try stacking models
+        for stack_name in ['cnn_stacking_logistic', 'cnn_stacking_ensemble_xgb_model']:
+            if stack_name in models_dict:
+                try:
+                    stack_pred = models_dict[stack_name].predict(cnn_feature_vector)[0]
+                    predictions[f"{stack_name}_ensemble"] = float(stack_pred)
+                except Exception as e:
+                    pass  # Silently skip if incompatible
     
     # Adjust predictions based on context
     if predictions:
@@ -1279,15 +1303,37 @@ elif page == "🛰️ Satellite Analysis":
         st.markdown("#### 📊 Loaded Components")
         
         model_info = []
+        cnn_count = 0
+        ensemble_count = 0
+        
         for model_name in st.session_state.ensemble_models.keys():
+            if model_name in ['resnet', 'densenet', 'vit', 'efficientnet']:
+                model_type = '🤖 CNN'
+                cnn_count += 1
+            else:
+                model_type = '🔗 Ensemble'
+                ensemble_count += 1
+            
             model_info.append({
                 'Component': model_name,
-                'Type': 'CNN' if model_name in ['resnet', 'densenet', 'vit', 'efficientnet'] else 'Ensemble',
+                'Type': model_type,
                 'Status': '✅ Ready'
             })
         
         if model_info:
             st.dataframe(pd.DataFrame(model_info), use_container_width=True)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"**🤖 CNN Models:** {cnn_count}\n\nThese models process raw images directly")
+            with col2:
+                st.info(f"**🔗 Ensemble Models:** {ensemble_count}\n\nThese combine CNN predictions")
+            
+            if cnn_count < 4:
+                st.warning(f"⚠️ Only {cnn_count}/4 CNN models loaded. Ensemble models may not work optimally.")
+                st.info("💡 Ensemble models require all 4 CNN models (ResNet, DenseNet, ViT, EfficientNet) to generate predictions.")
+            else:
+                st.success("✅ All CNN models loaded! Ensemble models can now combine their predictions.")
     else:
         st.info("👆 Click 'Load DL Models' to load compressed models")
         
@@ -1384,12 +1430,39 @@ elif page == "🖼️ Image Flood Detection":
             if st.session_state.models_loaded:
                 st.markdown("#### 🤖 Deep Learning Analysis")
                 
+                # Show which models will be used
+                available_cnns = [m for m in ['resnet', 'densenet', 'vit', 'efficientnet'] if m in st.session_state.ensemble_models]
+                available_ensembles = [m for m in st.session_state.ensemble_models.keys() if m not in ['resnet', 'densenet', 'vit', 'efficientnet']]
+                
+                with st.expander("ℹ️ Available Models for Prediction"):
+                    st.markdown(f"""
+                    **🤖 CNN Models Ready:** {len(available_cnns)}/4
+                    - {', '.join(available_cnns) if available_cnns else 'None'}
+                    
+                    **🔗 Ensemble Models Ready:** {len(available_ensembles)}
+                    - {', '.join(available_ensembles[:3]) if available_ensembles else 'None'}
+                    
+                    **Note:** Ensemble models require all 4 CNN models to be loaded. If fewer than 4 CNNs are available, only CNN predictions will be shown.
+                    """)
+                
                 with st.spinner("Running ensemble predictions..."):
                     result = predict_with_ensemble(image, st.session_state.ensemble_models)
                 
                 if result and not result['rejected']:
                     predictions = result['predictions']
                     ensemble_pred = result['ensemble_pred']
+                    
+                    # Show loading status
+                    cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                    ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                    
+                    if len(cnn_preds) < 4:
+                        missing_cnns = [m for m in ['resnet', 'densenet', 'vit', 'efficientnet'] if m not in cnn_preds]
+                        st.warning(f"⚠️ {len(missing_cnns)} CNN model(s) not loaded: {', '.join(missing_cnns)}")
+                        st.info("💡 These models failed to load during the 'Satellite Analysis' step. Check the error messages there.")
+                    
+                    if len(ensemble_preds) == 0 and len(cnn_preds) < 4:
+                        st.info("ℹ️ Ensemble models require all 4 CNNs. Showing CNN predictions only.")
                     
                     if ensemble_pred < 0.3:
                         risk_level = "🟢 Low Flood Risk"
@@ -1412,9 +1485,26 @@ elif page == "🖼️ Image Flood Detection":
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        st.markdown("##### 📊 Individual Models")
-                        for model_name, pred in predictions.items():
-                            st.metric(model_name.upper(), f"{pred:.2%}")
+                        st.markdown("##### 📊 All Model Predictions")
+                        
+                        # Separate CNN and Ensemble predictions
+                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        
+                        if cnn_preds:
+                            st.markdown("**🤖 CNN Models:**")
+                            for model_name, pred in cnn_preds.items():
+                                st.metric(model_name.upper(), f"{pred:.2%}")
+                        
+                        if ensemble_preds:
+                            st.markdown("**🔗 Ensemble Models:**")
+                            for model_name, pred in ensemble_preds.items():
+                                display_name = model_name.replace('_ensemble', '').replace('_', ' ').title()
+                                st.metric(display_name, f"{pred:.2%}")
+                        
+                        if not cnn_preds and not ensemble_preds:
+                            st.warning("No model predictions available")
+                            st.info(f"Total models available: {len(predictions)}")
                     
                     with col2:
                         # Gauge chart
@@ -1439,47 +1529,78 @@ elif page == "🖼️ Image Flood Detection":
                     st.markdown("#### 📊 Model Comparison")
                     
                     if len(predictions) > 1:
+                        # Separate predictions for better visualization
+                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            # Bar chart comparison
+                            # Combined bar chart
                             model_names = list(predictions.keys())
                             model_preds = [predictions[m] * 100 for m in model_names]
+                            
+                            # Create color coding for different model types
+                            colors = []
+                            for name in model_names:
+                                if name in ['resnet', 'densenet', 'vit', 'efficientnet']:
+                                    colors.append('CNN')
+                                else:
+                                    colors.append('Ensemble')
                             
                             fig_compare = px.bar(
                                 x=model_names,
                                 y=model_preds,
-                                title="🔍 Individual Model Predictions",
+                                color=colors,
+                                title="🔍 All Model Predictions",
                                 labels={'x': 'Model', 'y': 'Flood Probability (%)'},
-                                color=model_preds,
-                                color_continuous_scale='RdYlGn_r'
+                                color_discrete_map={'CNN': '#667eea', 'Ensemble': '#fa709a'}
                             )
                             fig_compare.add_hline(y=ensemble_pred * 100, line_dash="dash", 
-                                                line_color="red", annotation_text="Ensemble")
+                                                line_color="red", annotation_text="Final Ensemble",
+                                                line_width=2)
+                            fig_compare.update_layout(xaxis_tickangle=-45)
                             st.plotly_chart(fig_compare, use_container_width=True)
                         
                         with col2:
                             # Radar chart for model agreement
-                            fig_radar = go.Figure()
-                            
-                            fig_radar.add_trace(go.Scatterpolar(
-                                r=model_preds,
-                                theta=model_names,
-                                fill='toself',
-                                name='Predictions'
-                            ))
-                            
-                            fig_radar.update_layout(
-                                polar=dict(
-                                    radialaxis=dict(visible=True, range=[0, 100])
-                                ),
-                                title="🎯 Model Consensus View"
-                            )
-                            st.plotly_chart(fig_radar, use_container_width=True)
+                            if len(predictions) >= 3:
+                                fig_radar = go.Figure()
+                                
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=model_preds,
+                                    theta=[name[:15] for name in model_names],  # Truncate long names
+                                    fill='toself',
+                                    name='Predictions',
+                                    line_color='rgb(102, 126, 234)'
+                                ))
+                                
+                                fig_radar.update_layout(
+                                    polar=dict(
+                                        radialaxis=dict(visible=True, range=[0, 100])
+                                    ),
+                                    title="🎯 Model Consensus View",
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_radar, use_container_width=True)
+                            else:
+                                # Show box plot if fewer models
+                                fig_box = go.Figure()
+                                fig_box.add_trace(go.Box(
+                                    y=model_preds,
+                                    name='Predictions',
+                                    marker_color='rgb(102, 126, 234)',
+                                    boxmean='sd'
+                                ))
+                                fig_box.update_layout(
+                                    title="📊 Prediction Distribution",
+                                    yaxis_title="Flood Probability (%)"
+                                )
+                                st.plotly_chart(fig_box, use_container_width=True)
                         
-                        # Statistics
+                        # Detailed breakdown
                         st.markdown("##### 📈 Prediction Statistics")
-                        stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+                        stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
                         
                         with stat_col1:
                             st.metric("Mean", f"{np.mean(model_preds):.1f}%")
@@ -1489,6 +1610,27 @@ elif page == "🖼️ Image Flood Detection":
                             st.metric("Min", f"{np.min(model_preds):.1f}%")
                         with stat_col4:
                             st.metric("Max", f"{np.max(model_preds):.1f}%")
+                        with stat_col5:
+                            st.metric("Range", f"{np.ptp(model_preds):.1f}%")
+                        
+                        # Show model agreement analysis
+                        std_dev = np.std(model_preds)
+                        if std_dev < 10:
+                            st.success(f"✅ **High Agreement** - Models show strong consensus (σ={std_dev:.1f}%)")
+                        elif std_dev < 20:
+                            st.info(f"ℹ️ **Moderate Agreement** - Models show reasonable consensus (σ={std_dev:.1f}%)")
+                        else:
+                            st.warning(f"⚠️ **Low Agreement** - Models show significant variation (σ={std_dev:.1f}%)")
+                        
+                        # Detailed predictions table
+                        with st.expander("📋 View Detailed Predictions Table"):
+                            pred_table = pd.DataFrame({
+                                'Model': model_names,
+                                'Type': colors,
+                                'Probability': [f"{p:.2f}%" for p in model_preds],
+                                'Deviation from Mean': [f"{p - np.mean(model_preds):.2f}%" for p in model_preds]
+                            })
+                            st.dataframe(pred_table, use_container_width=True)
                     
                     st.info(f"💡 Analysis: {context['reason']}")
                     
