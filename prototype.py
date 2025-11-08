@@ -37,6 +37,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+import os
+os.system('kaggle kernels output subhojeetroy01/flood-prediction-models-performance-comparison -p pretrained_models/')
 
 # ==================== CUSTOM CSS ====================
 st.markdown("""
