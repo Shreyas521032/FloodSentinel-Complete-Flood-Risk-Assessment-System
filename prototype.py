@@ -141,7 +141,7 @@ def decompress_model(compressed_path):
         st.error(f"Error decompressing {compressed_path}: {str(e)}")
         return None
 
-def load_pretrained_dl_models(models_dir="pretrained_models/"):
+def load_pretrained_dl_models(models_dir="pretrained_models"):
     """Load all pre-trained deep learning models from the directory"""
     loaded_models = {}
     
@@ -212,7 +212,7 @@ def load_pretrained_dl_models(models_dir="pretrained_models/"):
     
     return loaded_models
 
-def load_pretrained_tabular_models(models_dir="Saved_Model/"):
+def load_pretrained_tabular_models(models_dir="Saved_Model"):
     """Load all pre-trained tabular models"""
     loaded_models = {}
     
@@ -224,10 +224,8 @@ def load_pretrained_tabular_models(models_dir="Saved_Model/"):
         'linear_regression.pkl': '📈 Linear Regression',
         'ridge.pkl': '📊 Ridge',
         'lasso.pkl': '🔗 Lasso',
-        'elasticnet.pkl': '🌐 ElasticNet',
         'k_neighbors_regressor.pkl': '👥 K-Neighbors',
         'decision_tree_regressor.pkl': '🌿 Decision Tree',
-        'random_forest_regressor.pkl': '🌳 Random Forest',
         'gradient_boosting_regressor.pkl': '⚡ Gradient Boosting',
         'xgboost_regressor.pkl': '🚀 XGBoost',
         'lightgbm_regressor.pkl': '💡 LightGBM',
@@ -242,6 +240,8 @@ def load_pretrained_tabular_models(models_dir="Saved_Model/"):
                 with open(filepath, 'rb') as f:
                     loaded_models[display_name] = pickle.load(f)
                 st.success(f"✅ {display_name} loaded")
+            else:
+                st.warning(f"⚠️ {display_name} not found at {filepath}")
     except Exception as e:
         st.error(f"❌ Error loading tabular models: {str(e)}")
     
