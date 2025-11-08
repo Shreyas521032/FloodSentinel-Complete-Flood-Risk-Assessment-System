@@ -141,7 +141,7 @@ def decompress_model(compressed_path):
         st.error(f"Error decompressing {compressed_path}: {str(e)}")
         return None
 
-def load_pretrained_dl_models(models_dir="pretrained_models"):
+def load_pretrained_dl_models(models_dir="pretrained_models/"):
     """Load all pre-trained deep learning models from the directory"""
     loaded_models = {}
     
@@ -212,7 +212,7 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
     
     return loaded_models
 
-def load_pretrained_tabular_models(models_dir="trained_models"):
+def load_pretrained_tabular_models(models_dir="Saved_Model/"):
     """Load all pre-trained tabular models"""
     loaded_models = {}
     
