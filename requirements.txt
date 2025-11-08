@@ -19,6 +19,7 @@ tqdm
 requests
 urllib3
 openpyxl
+torchvision
 xlrd
 joblib
 sympy
