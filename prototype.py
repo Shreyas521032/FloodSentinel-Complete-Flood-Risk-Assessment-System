@@ -1141,15 +1141,4 @@ st.markdown("""
         <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>
         Project: FloodSentinel</p>
     </div>
-""", unsafe_allow_html=True).markdown("""
-        <div class="warning-box">
-            <h4>🚀 Key Features</h4>
-            <ul>
-                <li>⚙️ 12 Pre-trained ML algorithms</li>
-                <li>🛰️ Ensemble deep learning models</li>
-                <li>📊 Context-aware flood detection</li>
-                <li>🎯 Fire/vegetation filtering</li>
-                <li>📈 Interactive visualizations</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
