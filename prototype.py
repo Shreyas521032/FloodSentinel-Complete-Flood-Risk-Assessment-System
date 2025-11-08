@@ -665,6 +665,21 @@ if page == "🏠 Home":
                 color_discrete_sequence=["#fa709a"]
             )
             st.plotly_chart(fig_box, use_container_width=True)
+    
+    st.markdown("#### 🎯 Top Features Analysis")
+    if "FloodProbability" in df.columns:
+        correlations = df.corr(numeric_only=True)["FloodProbability"].abs().sort_values(ascending=False)[1:]
+        
+        fig_corr_bar = px.bar(
+            x=correlations.values,
+            y=correlations.index,
+            orientation="h",
+            title="🔍 Feature Correlation with Flood Probability",
+            color=correlations.values,
+            color_continuous_scale="Viridis"
+        )
+        fig_corr_bar.update_layout(height=600)
+        st.plotly_chart(fig_corr_bar, use_container_width=True)
 
 # ==================== PAGE: MODEL TRAINING ====================
 
