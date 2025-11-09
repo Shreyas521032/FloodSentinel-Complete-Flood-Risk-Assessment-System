@@ -524,7 +524,7 @@ def predict_with_ensemble(image, models_dict):
                     st.warning(f"⚠️ Error with {model_name}: {str(e)}")
     
     # Try to use ensemble models if CNN features are available
-    if len(cnn_features) == 4:  # All 4 CNNs loaded (including ViT)
+    if len(cnn_features) == 2:  # All 4 CNNs loaded (including ViT)
         cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
         
         # Try meta models
@@ -1300,7 +1300,7 @@ elif page == "📊 Data Analysis":
         """, unsafe_allow_html=True)
     
     with col4:
-        cnn_status = "✅ 4 Models" if st.session_state.cnn_models_loaded else "❌ Not Loaded"
+        cnn_status = "✅ 3 Models" if st.session_state.cnn_models_loaded else "❌ Not Loaded"
         st.markdown(f"""
         <div class="metric-container">
             <h3>🛰️ CNN Models</h3>
@@ -1463,7 +1463,7 @@ elif page == "🤖 Load CNN Models":
     st.markdown("### 🤖 Load Pre-trained CNN Models")
     
     st.markdown("""
-    This section loads 4 pre-trained CNN architectures for satellite flood detection:
+    This section loads 3 pre-trained CNN architectures for satellite flood detection:
     
     | Model | Architecture | Key Features |
     |-------|--------------|--------------|
@@ -1498,7 +1498,7 @@ elif page == "🤖 Load CNN Models":
             if len(cnn_models) > 0:
                 st.session_state.ensemble_models.update(cnn_models)
                 st.session_state.cnn_models_loaded = True
-                st.success(f"✅ Successfully loaded {len(cnn_models)}/4 CNN models!")
+                st.success(f"✅ Successfully loaded {len(cnn_models)}/3 CNN models!")
                 
                 # Show which models were loaded
                 model_names = [ 'densenet', 'efficientnet', 'vit']
@@ -2054,7 +2054,7 @@ elif page == "🖼️ Image Flood Detection":
             <div class="success-box">
                 <h4>🤖 Deep Learning</h4>
                 <ul>
-                    <li>4 CNN model predictions</li>
+                    <li>3 CNN model predictions</li>
                     <li>Vision Transformer (ViT)</li>
                     <li>Ensemble meta-models</li>
                     <li>Confidence scoring</li>
@@ -2409,7 +2409,7 @@ st.sidebar.markdown("### ℹ️ About")
 st.sidebar.info("""
 🌊 **FloodSentinel**
 - 9 Pre-trained ML models
-- 4 Pre-trained CNN models
+- 3 Pre-trained CNN models
 - Context-aware detection
 - Fire/vegetation filtering
 - Ensemble predictions
