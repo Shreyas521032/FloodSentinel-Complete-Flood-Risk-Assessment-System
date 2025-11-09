@@ -320,13 +320,6 @@ def load_pretrained_cnn_models(models_dir="cnn_models"):
         return loaded_models
     
     model_configs = {
-        'resnet': {
-            'checkpoints': ['resnet_model_checkpoint.pth', 'resnet_model_checkpoint (1).pth'],
-            'display_name': '📊 ResNet-50',
-            'model_fn': lambda: torch_models.resnet50(pretrained=False),
-            'classifier_attr': 'fc',
-            'description': 'Deep Residual Network with 50 layers. Uses skip connections to train very deep networks effectively.'
-        },
         'densenet': {
             'checkpoints': ['densenet_model_checkpoint.pth', 'densenet_model_checkpoint (1).pth'],
             'display_name': '🌿 DenseNet-121',
@@ -431,10 +424,7 @@ def load_pretrained_cnn_models(models_dir="cnn_models"):
                         
                         # METHOD 3: Try creating new model with pretrained ImageNet weights
                         try:
-                            if model_key == 'resnet':
-                                model = torch_models.resnet50(pretrained=True)
-                                model.fc = nn.Linear(model.fc.in_features, 2)
-                            elif model_key == 'densenet':
+                            if model_key == 'densenet':
                                 model = torch_models.densenet121(pretrained=True)
                                 model.classifier = nn.Linear(model.classifier.in_features, 2)
                             elif model_key == 'efficientnet':
@@ -521,7 +511,7 @@ def predict_with_ensemble(image, models_dict):
     
     # Get predictions from each CNN model (including ViT)
     with torch.no_grad():
-        for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+        for model_name in [ 'densenet', 'efficientnet', 'vit']:
             if model_name in models_dict:
                 try:
                     model = models_dict[model_name]
@@ -646,7 +636,7 @@ def evaluate_cnn_models(models_dict, test_images, test_labels):
     
     evaluation_results = {}
     
-    for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+    for model_name in [ 'densenet', 'efficientnet', 'vit']:
         if model_name not in models_dict:
             continue
         
@@ -718,7 +708,7 @@ def evaluate_ensemble_models(models_dict, test_images, test_labels):
         img_tensor = test_transform(img).unsqueeze(0).to(device)
         
         with torch.no_grad():
-            for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+            for model_name in ['densenet', 'efficientnet', 'vit']:
                 if model_name in models_dict:
                     model = models_dict[model_name]
                     model.eval()
@@ -734,7 +724,7 @@ def evaluate_ensemble_models(models_dict, test_images, test_labels):
     ensemble_results = {}
     
     ensemble_model_names = [k for k in models_dict.keys() 
-                           if k not in ['resnet', 'densenet', 'efficientnet', 'vit']]
+                           if k not in ['densenet', 'efficientnet', 'vit']]
     
     for ensemble_name in ensemble_model_names:
         model = models_dict[ensemble_name]
@@ -794,7 +784,7 @@ def plot_model_comparison(cnn_results, ensemble_results=None):
             'Precision': metrics['Precision'],
             'Recall': metrics['Recall'],
             'F1 Score': metrics['F1_Score'],
-            'Type': 'CNN' if model_name in ['resnet', 'densenet', 'efficientnet', 'vit'] else 'Ensemble'
+            'Type': 'CNN' if model_name in ['densenet', 'efficientnet', 'vit'] else 'Ensemble'
         })
     
     df_metrics = pd.DataFrame(metrics_data)
@@ -1048,7 +1038,7 @@ def run_comprehensive_evaluation(models_dict, test_images=None, test_labels=None
     
     # Evaluate ensemble models
     ensemble_results = None
-    if any(k not in ['resnet', 'densenet', 'efficientnet', 'vit'] for k in models_dict.keys()):
+    if any(k not in ['densenet', 'efficientnet', 'vit'] for k in models_dict.keys()):
         with st.spinner("🔄 Evaluating ensemble models..."):
             ensemble_results = evaluate_ensemble_models(models_dict, test_images, test_labels)
     
@@ -1239,7 +1229,7 @@ if page == "🏠 Home":
             <h4>🚀 Key Features</h4>
             <ul>
                 <li>⚙️ 9 Pre-trained ML algorithms</li>
-                <li>🛰️ 4 Pre-trained CNN models (ResNet, DenseNet, EfficientNet, ViT)</li>
+                <li>🛰️ 3 Pre-trained CNN models (DenseNet, EfficientNet, ViT)</li>
                 <li>🎯 Vision Transformer for global context</li>
                 <li>📊 Context-aware flood detection</li>
                 <li>🔥 Fire/vegetation filtering</li>
@@ -1477,7 +1467,6 @@ elif page == "🤖 Load CNN Models":
     
     | Model | Architecture | Key Features |
     |-------|--------------|--------------|
-    | **ResNet-50** 📊 | Deep Residual Network | 50 layers with skip connections for training very deep networks |
     | **DenseNet-121** 🌿 | Densely Connected Network | Each layer receives input from all preceding layers for better gradient flow |
     | **EfficientNet-B0** 🚀 | Efficient CNN | Compound scaling method for optimal accuracy and efficiency |
     | **Vision Transformer (ViT)** 🎯 | Transformer-based | Self-attention mechanisms to capture global image context |
@@ -1512,7 +1501,7 @@ elif page == "🤖 Load CNN Models":
                 st.success(f"✅ Successfully loaded {len(cnn_models)}/4 CNN models!")
                 
                 # Show which models were loaded
-                model_names = ['resnet', 'densenet', 'efficientnet', 'vit']
+                model_names = [ 'densenet', 'efficientnet', 'vit']
                 for name in model_names:
                     if name in cnn_models:
                         if name == 'vit':
@@ -1549,7 +1538,7 @@ elif page == "🤖 Load CNN Models":
         col1, col2 = st.columns(2)
         
         with col1:
-            cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in ['resnet', 'densenet', 'efficientnet', 'vit']])
+            cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in ['densenet', 'efficientnet', 'vit']])
             st.markdown(f"""
             <div class="metric-container">
                 <h3>🤖 CNN Models</h3>
@@ -1559,7 +1548,7 @@ elif page == "🤖 Load CNN Models":
             """, unsafe_allow_html=True)
         
         with col2:
-            ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']])
+            ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in [ 'densenet', 'efficientnet', 'vit']])
             st.markdown(f"""
             <div class="metric-container">
                 <h3>🔗 Ensemble Models</h3>
@@ -1575,14 +1564,14 @@ elif page == "🤖 Load CNN Models":
         st.markdown("---")
         st.markdown("#### 📊 Current Model Status")
         
-        cnn_models = {k: v for k, v in st.session_state.ensemble_models.items() if k in ['resnet', 'densenet', 'efficientnet', 'vit']}
-        ensemble_models = {k: v for k, v in st.session_state.ensemble_models.items() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']}
+        cnn_models = {k: v for k, v in st.session_state.ensemble_models.items() if k in [ 'densenet', 'efficientnet', 'vit']}
+        ensemble_models = {k: v for k, v in st.session_state.ensemble_models.items() if k not in [ 'densenet', 'efficientnet', 'vit']}
         
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("##### 🤖 CNN Models")
-            for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+            for model_name in ['densenet', 'efficientnet', 'vit']:
                 if model_name in cnn_models:
                     if model_name == 'vit':
                         st.success(f"✅ {model_name.upper()} - Vision Transformer (Attention-based)")
@@ -1718,8 +1707,8 @@ elif page == "🖼️ Image Flood Detection":
         To use full deep learning predictions (including Vision Transformer), go to "🤖 Load CNN Models" first.
         """)
     else:
-        cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in ['resnet', 'densenet', 'efficientnet', 'vit']])
-        ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']])
+        cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in [ 'densenet', 'efficientnet', 'vit']])
+        ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in [ 'densenet', 'efficientnet', 'vit']])
         
         vit_loaded = 'vit' in st.session_state.ensemble_models
         if vit_loaded:
@@ -1811,8 +1800,8 @@ elif page == "🖼️ Image Flood Detection":
                         st.markdown("##### 📊 All Model Predictions")
                         
                         # Separate CNN and Ensemble predictions
-                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'efficientnet', 'vit']}
-                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']}
+                        cnn_preds = {k: v for k, v in predictions.items() if k in [ 'densenet', 'efficientnet', 'vit']}
+                        ensemble_preds = {k: v for k, v in predictions.items() if k not in [ 'densenet', 'efficientnet', 'vit']}
                         
                         if cnn_preds:
                             st.markdown("**🤖 CNN Models:**")
@@ -1878,7 +1867,7 @@ elif page == "🖼️ Image Flood Detection":
                             for name in model_names:
                                 if name == 'vit':
                                     colors.append('ViT (Transformer)')
-                                elif name in ['resnet', 'densenet', 'efficientnet']:
+                                elif name in [ 'densenet', 'efficientnet']:
                                     colors.append('CNN')
                                 else:
                                     colors.append('Ensemble')
@@ -1929,7 +1918,7 @@ elif page == "🖼️ Image Flood Detection":
                         st.markdown("#### 🎯 Vision Transformer Analysis")
                         
                         vit_pred = predictions['vit']
-                        avg_cnn = np.mean([predictions[k] for k in ['resnet', 'densenet', 'efficientnet'] if k in predictions])
+                        avg_cnn = np.mean([predictions[k] for k in [ 'densenet', 'efficientnet'] if k in predictions])
                         
                         col1, col2, col3 = st.columns(3)
                         
@@ -2234,8 +2223,8 @@ elif page == "📈 Results Dashboard":
         st.markdown("---")
         st.markdown("#### 🤖 CNN Model Status")
         
-        cnn_models = {k: v for k, v in st.session_state.ensemble_models.items() if k in ['resnet', 'densenet', 'efficientnet', 'vit']}
-        ensemble_models = {k: v for k, v in st.session_state.ensemble_models.items() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']}
+        cnn_models = {k: v for k, v in st.session_state.ensemble_models.items() if k in [ 'densenet', 'efficientnet', 'vit']}
+        ensemble_models = {k: v for k, v in st.session_state.ensemble_models.items() if k not in [ 'densenet', 'efficientnet', 'vit']}
         
         col1, col2, col3 = st.columns(3)
         
@@ -2275,7 +2264,6 @@ elif page == "📈 Results Dashboard":
         with col1:
             st.markdown("**🤖 CNN Models:**")
             model_info = {
-                'resnet': '📊 ResNet-50 - Deep Residual Network',
                 'densenet': '🌿 DenseNet-121 - Densely Connected',
                 'efficientnet': '🚀 EfficientNet-B0 - Efficient Scaling',
                 'vit': '🎯 Vision Transformer - Attention-based'
@@ -2302,14 +2290,6 @@ elif page == "📈 Results Dashboard":
             st.markdown("##### 🏗️ Model Architecture Comparison")
             
             arch_data = []
-            if 'resnet' in cnn_models:
-                arch_data.append({
-                    'Model': 'ResNet-50',
-                    'Type': 'CNN',
-                    'Layers': '50',
-                    'Parameters': '~25.6M',
-                    'Key Feature': 'Skip Connections'
-                })
             if 'densenet' in cnn_models:
                 arch_data.append({
                     'Model': 'DenseNet-121',
@@ -2412,13 +2392,13 @@ else:
     st.sidebar.error("❌ Tabular Models Not Loaded")
 
 if st.session_state.cnn_models_loaded:
-    cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in ['resnet', 'densenet', 'efficientnet', 'vit']])
+    cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in [ 'densenet', 'efficientnet', 'vit']])
     st.sidebar.success(f"✅ {cnn_count} CNN Models Loaded")
     
     if 'vit' in st.session_state.ensemble_models:
         st.sidebar.info("🎯 Vision Transformer Active")
     
-    ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in ['resnet', 'densenet', 'efficientnet', 'vit']])
+    ensemble_count = len([k for k in st.session_state.ensemble_models.keys() if k not in [ 'densenet', 'efficientnet', 'vit']])
     if ensemble_count > 0:
         st.sidebar.info(f"🔗 {ensemble_count} Ensemble models")
 else:
@@ -2436,7 +2416,6 @@ st.sidebar.info("""
 - Real-time analysis
 
 **CNN Models:**
-- 📊 ResNet-50
 - 🌿 DenseNet-121
 - 🚀 EfficientNet-B0
 - 🎯 Vision Transformer (ViT)
