@@ -525,13 +525,26 @@ def predict_with_ensemble(image, models_dict):
     
     # Try to use ensemble models if CNN features are available
     if len(cnn_features) >= 3:  # At least 3 CNNs loaded
+        # Strategy: Create 8 features from 3 CNN predictions
+        # Method 1: Duplicate predictions + add mean/std
         if len(cnn_features) == 3:
-            # Pad with average to match expected 4 features for ensemble models
             avg_feature = np.mean(cnn_features)
-            cnn_features_padded = cnn_features + [avg_feature]
-            cnn_feature_vector = np.array(cnn_features_padded).reshape(1, -1)
+            std_feature = np.std(cnn_features)
+            min_feature = np.min(cnn_features)
+            max_feature = np.max(cnn_features)
+            
+            # Create 8 features: [3 original, mean, 3 original again, std]
+            # This maintains information while padding to expected size
+            cnn_features_expanded = (
+                cnn_features +  # Original 3 predictions
+                [avg_feature] +  # Mean (4th CNN placeholder)
+                cnn_features +  # Duplicate 3 predictions
+                [std_feature]   # Standard deviation (8th feature)
+            )
+            cnn_feature_vector = np.array(cnn_features_expanded).reshape(1, -1)
         else:
-            cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
+            # If somehow we have 4 models, duplicate them
+            cnn_feature_vector = np.array(cnn_features + cnn_features).reshape(1, -1)
         
         # Try meta models
         for meta_name in ['meta_model', 'xgb_meta_model']:
