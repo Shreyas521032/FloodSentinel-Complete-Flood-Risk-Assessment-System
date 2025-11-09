@@ -1561,7 +1561,7 @@ elif page == "⚙️  Load CNN Models":
             st.markdown(f"""
             <div class="metric-container">
                 <h3>⚙️  CNN Models</h3>
-                <h2>{cnn_count}/4</h2>
+                <h2>{cnn_count}</h2>
                 <p>Loaded Successfully</p>
             </div>
             """, unsafe_allow_html=True)
