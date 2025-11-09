@@ -11,6 +11,7 @@ keras==2.15.0
 matplotlib
 seaborn
 plotly
+gdown
 Pillow
 opencv-python-headless
 scikit-image
