@@ -839,7 +839,7 @@ def plot_model_comparison(cnn_results, ensemble_results=None):
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("##### 🤖 CNN Models Performance")
+        st.markdown("##### ⚙️  CNN Models Performance")
         cnn_df = df_metrics[df_metrics['Type'] == 'CNN']
         
         if not cnn_df.empty:
@@ -1209,7 +1209,7 @@ st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-P
 st.sidebar.markdown("### 🧭 Navigation")
 page = st.sidebar.selectbox(
     "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🤖 Load CNN Models",
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "⚙️  Load CNN Models",
      "🔮 Predictions", "🖼️ Image Flood Detection", "📈 Results Dashboard"]
 )
 st.sidebar.markdown("---") 
@@ -1253,7 +1253,7 @@ if page == "🏠 Home":
                 <li>📊 Context-aware flood detection</li>
                 <li>🔥 Fire/vegetation filtering</li>
                 <li>📈 Interactive visualizations</li>
-                <li>🤖 Ensemble predictions</li>
+                <li>⚙️  Ensemble predictions</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
@@ -1478,8 +1478,8 @@ elif page == "⚙️ Model Training":
 
 # ==================== PAGE: LOAD CNN MODELS ====================
 
-elif page == "🤖 Load CNN Models":
-    st.markdown("### 🤖 Load Pre-trained CNN Models")
+elif page == "⚙️  Load CNN Models":
+    st.markdown("### ⚙️  Load Pre-trained CNN Models")
     
     st.markdown("""
     This section loads 3 pre-trained CNN architectures for satellite flood detection:
@@ -1560,7 +1560,7 @@ elif page == "🤖 Load CNN Models":
             cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in ['densenet', 'efficientnet', 'vit']])
             st.markdown(f"""
             <div class="metric-container">
-                <h3>🤖 CNN Models</h3>
+                <h3>⚙️  CNN Models</h3>
                 <h2>{cnn_count}/4</h2>
                 <p>Loaded Successfully</p>
             </div>
@@ -1589,7 +1589,7 @@ elif page == "🤖 Load CNN Models":
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("##### 🤖 CNN Models")
+            st.markdown("##### ⚙️  CNN Models")
             for model_name in ['densenet', 'efficientnet', 'vit']:
                 if model_name in cnn_models:
                     if model_name == 'vit':
@@ -1723,7 +1723,7 @@ elif page == "🖼️ Image Flood Detection":
         - 💧 **Water detection** - Identifies water bodies
         - 📊 **Smart classification** - Rule-based flood assessment
         
-        To use full deep learning predictions (including Vision Transformer), go to "🤖 Load CNN Models" first.
+        To use full deep learning predictions (including Vision Transformer), go to "⚙️  Load CNN Models" first.
         """)
     else:
         cnn_count = len([k for k in st.session_state.ensemble_models.keys() if k in [ 'densenet', 'efficientnet', 'vit']])
@@ -1741,7 +1741,7 @@ elif page == "🖼️ Image Flood Detection":
     - 🔥 Fire detection to avoid false positives
     - 🌿 Vegetation analysis
     - 💧 Water body detection
-    - 🤖 Deep learning ensemble predictions (if models loaded)
+    - ⚙️  Deep learning ensemble predictions (if models loaded)
     - 🎯 Vision Transformer for attention-based global context (if loaded)
     """)
     
@@ -1786,7 +1786,7 @@ elif page == "🖼️ Image Flood Detection":
             
             # Deep Learning Analysis
             if st.session_state.cnn_models_loaded:
-                st.markdown("#### 🤖 Deep Learning Analysis")
+                st.markdown("#### ⚙️  Deep Learning Analysis")
                 
                 with st.spinner("Running ensemble predictions (including Vision Transformer)..."):
                     result = predict_with_ensemble(image, st.session_state.ensemble_models)
@@ -1823,7 +1823,7 @@ elif page == "🖼️ Image Flood Detection":
                         ensemble_preds = {k: v for k, v in predictions.items() if k not in [ 'densenet', 'efficientnet', 'vit']}
                         
                         if cnn_preds:
-                            st.markdown("**🤖 CNN Models:**")
+                            st.markdown("**⚙️  CNN Models:**")
                             for model_name, pred in cnn_preds.items():
                                 if model_name == 'vit':
                                     st.metric("🎯 ViT (Transformer)", f"{pred:.2%}")
@@ -1964,7 +1964,7 @@ elif page == "🖼️ Image Flood Detection":
                             st.metric("🔗 Ensemble Average", f"{ensemble_avg:.2%}")
                         with col2:
                             cnn_avg = np.mean(list(cnn_preds.values()))
-                            st.metric("🤖 CNN Average", f"{cnn_avg:.2%}")
+                            st.metric("⚙️  CNN Average", f"{cnn_avg:.2%}")
                         with col3:
                             diff = abs(ensemble_avg - cnn_avg)
                             st.metric("📊 Difference", f"{diff:.2%}")
@@ -2040,7 +2040,7 @@ elif page == "🖼️ Image Flood Detection":
                     st.plotly_chart(fig_simple, use_container_width=True)
                 
                 st.info(f"💡 {context['reason']}")
-                st.warning("⚠️ For more accurate predictions (including Vision Transformer), load CNN models from the '🤖 Load CNN Models' page.")
+                st.warning("⚠️ For more accurate predictions (including Vision Transformer), load CNN models from the '⚙️  Load CNN Models' page.")
                 
         except Exception as e:
             st.error(f"❌ Error processing image: {str(e)}")
@@ -2071,7 +2071,7 @@ elif page == "🖼️ Image Flood Detection":
         with col2:
             st.markdown("""
             <div class="success-box">
-                <h4>🤖 Deep Learning</h4>
+                <h4>⚙️  Deep Learning</h4>
                 <ul>
                     <li>3 CNN model predictions</li>
                     <li>Vision Transformer (ViT)</li>
@@ -2240,7 +2240,7 @@ elif page == "📈 Results Dashboard":
     # CNN models results
     if st.session_state.cnn_models_loaded:
         st.markdown("---")
-        st.markdown("#### 🤖 CNN Model Status")
+        st.markdown("#### ⚙️  CNN Model Status")
         
         cnn_models = {k: v for k, v in st.session_state.ensemble_models.items() if k in [ 'densenet', 'efficientnet', 'vit']}
         ensemble_models = {k: v for k, v in st.session_state.ensemble_models.items() if k not in [ 'densenet', 'efficientnet', 'vit']}
@@ -2250,7 +2250,7 @@ elif page == "📈 Results Dashboard":
         with col1:
             st.markdown(f"""
             <div class="metric-container">
-                <h4>🤖 CNN Models</h4>
+                <h4>⚙️  CNN Models</h4>
                 <h2>{len(cnn_models)}/4</h2>
                 <p>Loaded</p>
             </div>
@@ -2281,7 +2281,7 @@ elif page == "📈 Results Dashboard":
         col1, col2 = st.columns(2)
         
         with col1:
-            st.markdown("**🤖 CNN Models:**")
+            st.markdown("**⚙️  CNN Models:**")
             model_info = {
                 'densenet': '🌿 DenseNet-121 - Densely Connected',
                 'efficientnet': '🚀 EfficientNet-B0 - Efficient Scaling',
@@ -2349,7 +2349,7 @@ elif page == "📈 Results Dashboard":
         st.info("💡 **Tip:** Upload satellite images in the '🖼️ Image Flood Detection' page to test these models!")
         
     else:
-        st.info("💡 Load CNN models on the '🤖 Load CNN Models' page to see deep learning model status.")
+        st.info("💡 Load CNN models on the '⚙️  Load CNN Models' page to see deep learning model status.")
     
     # Overall system status
     st.markdown("---")
@@ -2379,7 +2379,7 @@ elif page == "📈 Results Dashboard":
         cnn_status = "✅ Ready" if st.session_state.cnn_models_loaded else "❌ Not Ready"
         st.markdown(f"""
         <div class="{'success-box' if st.session_state.cnn_models_loaded else 'warning-box'}">
-            <h4>🤖 CNN Models</h4>
+            <h4>⚙️  CNN Models</h4>
             <p>{cnn_status}</p>
         </div>
         """, unsafe_allow_html=True)
