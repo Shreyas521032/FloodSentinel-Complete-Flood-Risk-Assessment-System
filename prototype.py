@@ -129,56 +129,69 @@ if 'scaler' not in st.session_state:
 
 # ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
 
-def decompress_model(compressed_path):
-    """Decompress a .gz compressed model file with validation"""
+def try_decompress_and_load(compressed_path, device):
+    """
+    Try to decompress .gz file and load it directly as raw weights
+    Returns state_dict or None
+    """
     try:
-        import tempfile
+        st.info(f"📦 Attempting to load: {os.path.basename(compressed_path)}")
         
-        # Check if file exists and has content
+        # Check if file exists
         if not os.path.exists(compressed_path):
-            st.error(f"File not found: {compressed_path}")
+            st.warning(f"⚠️ File not found: {compressed_path}")
             return None
         
         file_size = os.path.getsize(compressed_path)
         if file_size == 0:
-            st.error(f"File is empty: {compressed_path}")
+            st.warning(f"⚠️ File is empty: {compressed_path}")
             return None
         
-        st.info(f"📦 Decompressing {os.path.basename(compressed_path)} ({file_size / (1024*1024):.2f} MB)...")
+        st.info(f"   File size: {file_size / (1024*1024):.2f} MB")
         
+        # Try to decompress
+        try:
+            with gzip.open(compressed_path, 'rb') as f:
+                decompressed_data = f.read()
+                st.info(f"   Decompressed: {len(decompressed_data) / (1024*1024):.2f} MB")
+        except Exception as e:
+            st.warning(f"⚠️ Decompression failed: {str(e)[:100]}")
+            return None
+        
+        # Save to temporary file
+        import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pth') as tmp_file:
+            tmp_file.write(decompressed_data)
+            tmp_path = tmp_file.name
+        
+        # Try to load as PyTorch checkpoint
+        try:
+            state_dict = torch.load(tmp_path, map_location=device, weights_only=False)
+            st.success(f"✅ Successfully loaded as PyTorch checkpoint")
+            os.unlink(tmp_path)
+            return state_dict
+        except Exception as e1:
+            st.warning(f"⚠️ Not a standard PyTorch checkpoint: {str(e1)[:100]}")
+            
+            # Try to load as pickle
             try:
-                with gzip.open(compressed_path, 'rb') as f_in:
-                    decompressed_data = f_in.read()
-                    tmp_file.write(decompressed_data)
-                    tmp_file.flush()  # Ensure data is written
-                    st.success(f"✅ Decompressed to {len(decompressed_data) / (1024*1024):.2f} MB")
-                
-                # Verify the decompressed file is valid
-                try:
-                    test_load = torch.load(tmp_file.name, map_location='cpu', weights_only=False)
-                    st.success("✅ File verified as valid PyTorch checkpoint")
-                    return tmp_file.name
-                except Exception as verify_err:
-                    st.error(f"❌ Decompressed file is not a valid PyTorch checkpoint: {str(verify_err)[:100]}")
-                    st.info("💡 Your .gz file may contain raw model weights instead of a PyTorch state dict")
-                    os.unlink(tmp_file.name)
-                    return None
-                    
-            except gzip.BadGzipFile:
-                st.error(f"❌ Invalid gzip file: {compressed_path}")
-                st.info("💡 The file might not be gzip compressed or is corrupted")
+                import pickle
+                with open(tmp_path, 'rb') as f:
+                    state_dict = pickle.load(f)
+                st.success(f"✅ Successfully loaded as pickle file")
+                os.unlink(tmp_path)
+                return state_dict
+            except Exception as e2:
+                st.warning(f"⚠️ Not a pickle file: {str(e2)[:100]}")
+                os.unlink(tmp_path)
                 return None
-            except Exception as e:
-                st.error(f"❌ Decompression error: {str(e)}")
-                return None
-                
+    
     except Exception as e:
-        st.error(f"❌ Error in decompress_model: {str(e)}")
+        st.error(f"❌ Error in try_decompress_and_load: {str(e)}")
         return None
 
 def load_pretrained_dl_models(models_dir="pretrained_models"):
-    """Load all pre-trained deep learning models with robust error handling"""
+    """Load all pre-trained deep learning models with multiple fallback strategies"""
     loaded_models = {}
     
     if not os.path.exists(models_dir):
@@ -190,173 +203,200 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         st.info(f"🖥️ Using device: {device}")
         
+        # Strategy: Try multiple file patterns for each model
+        model_patterns = {
+            'resnet': [
+                'model_compressed_resnet_model_checkpoint.pth.gz',
+                'resnet_model_checkpoint.pth.gz',
+                'resnet_model_checkpoint.pth',
+                'resnet.pth.gz',
+                'resnet.pth'
+            ],
+            'densenet': [
+                'model_compressed_densenet_model_checkpoint.pth.gz',
+                'densenet_model_checkpoint.pth.gz',
+                'densenet_model_checkpoint.pth',
+                'densenet.pth.gz',
+                'densenet.pth'
+            ],
+            'vit': [
+                'model_compressed.pth.gz',
+                'vit_model_checkpoint.pth.gz',
+                'vit_model_checkpoint.pth',
+                'vit.pth.gz',
+                'vit.pth'
+            ],
+            'efficientnet': [
+                'efficientnet_model_checkpoint.pth',
+                'efficientnet_model_checkpoint.pth.gz',
+                'efficientnet.pth.gz',
+                'efficientnet.pth'
+            ]
+        }
+        
         # Load ResNet
-        resnet_path = os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz")
-        if os.path.exists(resnet_path):
-            decompressed = decompress_model(resnet_path)
-            if decompressed:
+        st.markdown("#### 🔄 Loading ResNet-50...")
+        resnet_loaded = False
+        for pattern in model_patterns['resnet']:
+            resnet_path = os.path.join(models_dir, pattern)
+            if os.path.exists(resnet_path):
+                st.info(f"   Found: {pattern}")
                 try:
-                    st.info("🔄 Loading ResNet-50 architecture...")
+                    # Create architecture
                     resnet = torch_models.resnet50(pretrained=False)
                     resnet.fc = nn.Linear(resnet.fc.in_features, 2)
                     
-                    # Try loading with different map_location strategies
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
+                    # Load weights
+                    if pattern.endswith('.gz'):
+                        state_dict = try_decompress_and_load(resnet_path, device)
+                    else:
+                        state_dict = torch.load(resnet_path, map_location=device, weights_only=False)
+                    
+                    if state_dict is not None:
                         # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
+                        if isinstance(state_dict, dict):
+                            if 'state_dict' in state_dict:
+                                state_dict = state_dict['state_dict']
+                            elif 'model_state_dict' in state_dict:
+                                state_dict = state_dict['model_state_dict']
                         
                         resnet.load_state_dict(state_dict, strict=False)
                         resnet.to(device)
                         resnet.eval()
                         loaded_models['resnet'] = resnet
                         st.success("✅ ResNet-50 loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading ResNet weights: {str(load_err)[:200]}")
-                        st.info("💡 Try re-saving your model: `torch.save(model.state_dict(), 'model.pth')`")
-                    
-                    # Clean up temp file
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
+                        resnet_loaded = True
+                        break
                 except Exception as e:
-                    st.error(f"❌ Error with ResNet: {str(e)}")
-        else:
-            st.warning(f"⚠️ ResNet model not found at {resnet_path}")
+                    st.warning(f"⚠️ Failed with {pattern}: {str(e)[:100]}")
+                    continue
+        
+        if not resnet_loaded:
+            st.error("❌ Could not load ResNet-50 from any file pattern")
         
         # Load DenseNet
-        densenet_path = os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz")
-        if os.path.exists(densenet_path):
-            decompressed = decompress_model(densenet_path)
-            if decompressed:
+        st.markdown("#### 🔄 Loading DenseNet-121...")
+        densenet_loaded = False
+        for pattern in model_patterns['densenet']:
+            densenet_path = os.path.join(models_dir, pattern)
+            if os.path.exists(densenet_path):
+                st.info(f"   Found: {pattern}")
                 try:
-                    st.info("🔄 Loading DenseNet-121 architecture...")
                     densenet = torch_models.densenet121(pretrained=False)
                     densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
                     
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
-                        # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
+                    if pattern.endswith('.gz'):
+                        state_dict = try_decompress_and_load(densenet_path, device)
+                    else:
+                        state_dict = torch.load(densenet_path, map_location=device, weights_only=False)
+                    
+                    if state_dict is not None:
+                        if isinstance(state_dict, dict):
+                            if 'state_dict' in state_dict:
+                                state_dict = state_dict['state_dict']
+                            elif 'model_state_dict' in state_dict:
+                                state_dict = state_dict['model_state_dict']
                         
                         densenet.load_state_dict(state_dict, strict=False)
                         densenet.to(device)
                         densenet.eval()
                         loaded_models['densenet'] = densenet
                         st.success("✅ DenseNet-121 loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading DenseNet weights: {str(load_err)[:200]}")
-                    
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
+                        densenet_loaded = True
+                        break
                 except Exception as e:
-                    st.error(f"❌ Error with DenseNet: {str(e)}")
-        else:
-            st.warning(f"⚠️ DenseNet model not found at {densenet_path}")
+                    st.warning(f"⚠️ Failed with {pattern}: {str(e)[:100]}")
+                    continue
+        
+        if not densenet_loaded:
+            st.error("❌ Could not load DenseNet-121 from any file pattern")
         
         # Load ViT
-        vit_path = os.path.join(models_dir, "model_compressed.pth.gz")
-        if os.path.exists(vit_path):
-            decompressed = decompress_model(vit_path)
-            if decompressed:
+        st.markdown("#### 🔄 Loading Vision Transformer...")
+        vit_loaded = False
+        for pattern in model_patterns['vit']:
+            vit_path = os.path.join(models_dir, pattern)
+            if os.path.exists(vit_path):
+                st.info(f"   Found: {pattern}")
                 try:
-                    st.info("🔄 Loading Vision Transformer architecture...")
-                    # Import timm here to avoid scope issues
-                    import timm as timm_module
-                    vit = timm_module.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
+                    vit = timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
                     
-                    try:
-                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
-                        
-                        # Handle different checkpoint formats
-                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
-                            state_dict = state_dict['state_dict']
-                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
-                            state_dict = state_dict['model_state_dict']
+                    if pattern.endswith('.gz'):
+                        state_dict = try_decompress_and_load(vit_path, device)
+                    else:
+                        state_dict = torch.load(vit_path, map_location=device, weights_only=False)
+                    
+                    if state_dict is not None:
+                        if isinstance(state_dict, dict):
+                            if 'state_dict' in state_dict:
+                                state_dict = state_dict['state_dict']
+                            elif 'model_state_dict' in state_dict:
+                                state_dict = state_dict['model_state_dict']
                         
                         vit.load_state_dict(state_dict, strict=False)
                         vit.to(device)
                         vit.eval()
                         loaded_models['vit'] = vit
                         st.success("✅ Vision Transformer loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading ViT weights: {str(load_err)[:200]}")
-                    
-                    try:
-                        os.unlink(decompressed)
-                    except:
-                        pass
-                        
+                        vit_loaded = True
+                        break
                 except Exception as e:
-                    st.error(f"❌ Error with ViT: {str(e)}")
-        else:
-            st.warning(f"⚠️ ViT model not found at {vit_path}")
+                    st.warning(f"⚠️ Failed with {pattern}: {str(e)[:100]}")
+                    continue
         
-        # Load EfficientNet (uncompressed) - try multiple architectures
-        efficientnet_path = os.path.join(models_dir, "efficientnet_model_checkpoint.pth")
-        if os.path.exists(efficientnet_path):
-            try:
-                file_size = os.path.getsize(efficientnet_path)
-                st.info(f"🔄 Loading EfficientNet ({file_size / (1024*1024):.2f} MB)...")
-                
-                # Load the state dict first to inspect it
-                state_dict = torch.load(efficientnet_path, map_location=device, weights_only=False)
-                
-                # Handle different checkpoint formats
-                if isinstance(state_dict, dict):
-                    if 'state_dict' in state_dict:
-                        state_dict = state_dict['state_dict']
-                    elif 'model_state_dict' in state_dict:
-                        state_dict = state_dict['model_state_dict']
-                
-                # Try to determine the architecture from keys
-                if 'blocks.0.0.conv_dw.weight' in state_dict:
-                    # timm EfficientNet structure
-                    st.info("Detected timm EfficientNet architecture")
-                    try:
-                        import timm as timm_module
-                        efficientnet = timm_module.create_model('efficientnet_b0', pretrained=False, num_classes=2)
-                        efficientnet.load_state_dict(state_dict, strict=False)
-                        efficientnet.to(device)
-                        efficientnet.eval()
-                        loaded_models['efficientnet'] = efficientnet
-                        st.success("✅ EfficientNet-B0 (timm) loaded successfully")
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not load with timm: {str(e)}")
-                else:
-                    # Try standard torchvision
-                    efficientnet = torch_models.efficientnet_b0(pretrained=False)
-                    efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
-                    try:
-                        efficientnet.load_state_dict(state_dict, strict=False)
-                        efficientnet.to(device)
-                        efficientnet.eval()
-                        loaded_models['efficientnet'] = efficientnet
-                        st.success("✅ EfficientNet-B0 (torchvision) loaded successfully")
-                    except Exception as load_err:
-                        st.error(f"❌ Error loading EfficientNet weights: {str(load_err)[:200]}")
-                        st.info("⚠️ EfficientNet skipped - architecture mismatch")
+        if not vit_loaded:
+            st.error("❌ Could not load ViT from any file pattern")
+        
+        # Load EfficientNet
+        st.markdown("#### 🔄 Loading EfficientNet...")
+        efficientnet_loaded = False
+        for pattern in model_patterns['efficientnet']:
+            efficientnet_path = os.path.join(models_dir, pattern)
+            if os.path.exists(efficientnet_path):
+                st.info(f"   Found: {pattern}")
+                try:
+                    if pattern.endswith('.gz'):
+                        state_dict = try_decompress_and_load(efficientnet_path, device)
+                    else:
+                        state_dict = torch.load(efficientnet_path, map_location=device, weights_only=False)
                     
-            except Exception as e:
-                st.error(f"❌ Error with EfficientNet: {str(e)[:200]}")
-                st.info("⚠️ EfficientNet will be skipped - continuing with other models")
-        else:
-            st.warning(f"⚠️ EfficientNet model not found at {efficientnet_path}")
+                    if state_dict is not None:
+                        if isinstance(state_dict, dict):
+                            if 'state_dict' in state_dict:
+                                state_dict = state_dict['state_dict']
+                            elif 'model_state_dict' in state_dict:
+                                state_dict = state_dict['model_state_dict']
+                        
+                        # Try timm version first
+                        try:
+                            efficientnet = timm.create_model('efficientnet_b0', pretrained=False, num_classes=2)
+                            efficientnet.load_state_dict(state_dict, strict=False)
+                            efficientnet.to(device)
+                            efficientnet.eval()
+                            loaded_models['efficientnet'] = efficientnet
+                            st.success("✅ EfficientNet-B0 (timm) loaded successfully")
+                            efficientnet_loaded = True
+                            break
+                        except:
+                            # Try torchvision version
+                            efficientnet = torch_models.efficientnet_b0(pretrained=False)
+                            efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
+                            efficientnet.load_state_dict(state_dict, strict=False)
+                            efficientnet.to(device)
+                            efficientnet.eval()
+                            loaded_models['efficientnet'] = efficientnet
+                            st.success("✅ EfficientNet-B0 (torchvision) loaded successfully")
+                            efficientnet_loaded = True
+                            break
+                except Exception as e:
+                    st.warning(f"⚠️ Failed with {pattern}: {str(e)[:100]}")
+                    continue
+        
+        if not efficientnet_loaded:
+            st.error("❌ Could not load EfficientNet from any file pattern")
         
         # Load ensemble models (pickle files)
+        st.markdown("#### 🔄 Loading Ensemble Models...")
         ensemble_files = {
             'meta_model.pkl': 'Meta Model',
             'xgb_meta_model.pkl': 'XGBoost Meta Model',
@@ -370,67 +410,29 @@ def load_pretrained_dl_models(models_dir="pretrained_models"):
             filepath = os.path.join(models_dir, filename)
             if os.path.exists(filepath):
                 try:
-                    file_size = os.path.getsize(filepath)
-                    st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
-                    
                     with open(filepath, 'rb') as f:
-                        try:
-                            loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
-                            st.success(f"✅ {display_name} loaded successfully")
-                        except Exception as e1:
-                            # Try joblib
-                            try:
-                                import joblib
-                                loaded_models[filename.replace('.pkl', '')] = joblib.load(filepath)
-                                st.success(f"✅ {display_name} loaded with joblib")
-                            except Exception as e2:
-                                st.warning(f"⚠️ Could not load {display_name}: {str(e1)[:100]}")
-                                
+                        loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
+                    st.success(f"✅ {display_name} loaded")
                 except Exception as e:
-                    st.warning(f"⚠️ Error accessing {display_name}: {str(e)}")
-            else:
-                st.info(f"ℹ️ Optional: {display_name} not found")
+                    try:
+                        import joblib
+                        loaded_models[filename.replace('.pkl', '')] = joblib.load(filepath)
+                        st.success(f"✅ {display_name} loaded (joblib)")
+                    except:
+                        st.warning(f"⚠️ Could not load {display_name}")
         
-        if not loaded_models:
-            st.error("❌ No models were loaded. Please check:")
-            st.markdown("""
-            ### Troubleshooting Steps:
-            
-            1. **For PyTorch models (.pth.gz files):**
-               ```python
-               # Your files may not be properly saved. To fix:
-               import torch
-               import gzip
-               
-               # Save model state dict
-               torch.save(model.state_dict(), 'temp.pth')
-               
-               # Compress with gzip
-               with open('temp.pth', 'rb') as f_in:
-                   with gzip.open('model.pth.gz', 'wb') as f_out:
-                       f_out.write(f_in.read())
-               ```
-            
-            2. **Alternative: Skip compression**
-               - Rename your `.pth.gz` files to `.pth`
-               - Update the code to look for `.pth` instead
-            
-            3. **For EfficientNet:**
-               - Model was saved with `timm` library architecture
-               - Using `strict=False` to load partial weights
-            
-            **Current Status:**
-            - ✅ {len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])} CNN models loaded
-            - ✅ {len([k for k in loaded_models.keys() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']])} ensemble models loaded
-            """)
+        # Final summary
+        cnn_count = len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])
+        ensemble_count = len([k for k in loaded_models.keys() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']])
+        
+        if cnn_count == 0:
+            st.error("❌ No CNN models loaded - image prediction will use context analysis only")
+            st.info("💡 You can still use the app with tabular models and context-based analysis")
         else:
-            cnn_count = len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])
-            ensemble_count = len(loaded_models) - cnn_count
             st.success(f"✅ Loaded {cnn_count} CNN models and {ensemble_count} ensemble models!")
             
-            if cnn_count == 0:
-                st.warning("⚠️ No CNN models loaded - image prediction will use context analysis only")
-                st.info("💡 You can still use the app with tabular models and context-based image analysis")
+            if cnn_count < 4:
+                st.warning(f"⚠️ Only {cnn_count}/4 CNN models loaded. Ensemble may not work optimally.")
         
     except Exception as e:
         st.error(f"❌ Critical error loading DL models: {str(e)}")
@@ -470,7 +472,6 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
             st.warning(f"⚠️ {display_name} not found at {filepath}")
             continue
         
-        # Check file size
         file_size = os.path.getsize(filepath)
         if file_size == 0:
             st.error(f"❌ {display_name} is empty (0 bytes)")
@@ -479,38 +480,23 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
         st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
         
         try:
-            # Try different pickle protocols
             with open(filepath, 'rb') as f:
                 try:
                     loaded_models[display_name] = pickle.load(f)
                     st.success(f"✅ {display_name} loaded successfully")
                 except Exception as e1:
-                    # Try with different encoding
                     st.warning(f"⚠️ Standard pickle failed, trying alternative methods...")
                     f.seek(0)
                     try:
                         loaded_models[display_name] = pickle.load(f, encoding='latin1')
                         st.success(f"✅ {display_name} loaded with latin1 encoding")
                     except Exception as e2:
-                        # Try joblib if pickle fails
                         try:
                             import joblib
                             loaded_models[display_name] = joblib.load(filepath)
                             st.success(f"✅ {display_name} loaded with joblib")
                         except Exception as e3:
                             st.error(f"❌ Failed to load {display_name}")
-                            st.error(f"   Pickle error: {str(e1)[:100]}")
-                            st.error(f"   Latin1 error: {str(e2)[:100]}")
-                            st.error(f"   Joblib error: {str(e3)[:100]}")
-                            
-                            # Show file info for debugging
-                            with st.expander(f"🔍 Debug info for {display_name}"):
-                                st.code(f"File path: {filepath}\nFile size: {file_size} bytes")
-                                # Read first few bytes
-                                with open(filepath, 'rb') as debug_f:
-                                    first_bytes = debug_f.read(20)
-                                    st.code(f"First bytes (hex): {first_bytes.hex()}")
-                                    st.code(f"First bytes (repr): {repr(first_bytes)}")
                             
         except Exception as e:
             st.error(f"❌ Error accessing {display_name}: {str(e)}")
@@ -519,15 +505,6 @@ def load_pretrained_tabular_models(models_dir="Saved_Model"):
         st.success(f"🎉 Successfully loaded {len(loaded_models)} models!")
     else:
         st.warning("⚠️ No tabular models were loaded.")
-        st.info("💡 Some models may have numpy version mismatches. The app will continue with successfully loaded models.")
-        st.markdown("""
-        **Common Issues:**
-        - **Gradient Boosting error**: Numpy version incompatibility
-          - This is a known issue with numpy 2.x vs 1.x
-          - The model can be re-saved with: `joblib.dump(model, 'model.pkl', protocol=4)`
-        
-        **Continue anyway?** Yes! The other models work fine for predictions.
-        """)
     
     return loaded_models
 
