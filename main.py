@@ -7,18 +7,9 @@ from plotly.subplots import make_subplots
 import seaborn as sns
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor, AdaBoostRegressor
-from sklearn.linear_model import LinearRegression, Ridge, Lasso, ElasticNet
-from sklearn.svm import SVR
-from sklearn.neighbors import KNeighborsRegressor
-from sklearn.tree import DecisionTreeRegressor
-from sklearn.neural_network import MLPRegressor
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.decomposition import PCA
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
-import xgboost as xgb
-import lightgbm as lgb
-from catboost import CatBoostRegressor
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 import kagglehub
 import warnings
 import os
@@ -26,15 +17,20 @@ import zipfile
 import cv2
 from PIL import Image
 import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout, BatchNormalization
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import time
 import json
+import io
+import pickle
+import gzip
+import torch
+import torch.nn as nn
+from torchvision import models as torch_models
+import timm
+from torchvision import transforms
 
 warnings.filterwarnings('ignore')
 
+# ==================== PAGE CONFIGURATION ====================
 st.set_page_config(
     page_title="FloodSentinel - AI-Powered Flood Risk Assessment",
     page_icon="🌊",
@@ -42,6 +38,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ==================== CUSTOM CSS ====================
 st.markdown("""
 <style>
     .main-header {
@@ -86,6 +83,7 @@ st.markdown("""
         color: #333;
         margin: 1rem 0;
     }
+    
     .footer {
         position: relative;
         left: 0;
@@ -105,7 +103,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
+# ==================== SESSION STATE INITIALIZATION ====================
 if 'models_trained' not in st.session_state:
     st.session_state.models_trained = False
 if 'dataset_loaded' not in st.session_state:
@@ -116,31 +114,675 @@ if 'X_test_scaled' not in st.session_state:
     st.session_state.X_test_scaled = None
 if 'pca_components' not in st.session_state:
     st.session_state.pca_components = None
+if 'pca_model' not in st.session_state:
+    st.session_state.pca_model = None
 if 'df_flood' not in st.session_state:
     st.session_state.df_flood = None
 if 'sat_files' not in st.session_state:
     st.session_state.sat_files = []
+if 'ensemble_models' not in st.session_state:
+    st.session_state.ensemble_models = {}
+if 'models_loaded' not in st.session_state:
+    st.session_state.models_loaded = False
+if 'scaler' not in st.session_state:
+    st.session_state.scaler = None
 
-st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
-st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
+# ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
 
-st.sidebar.markdown("### 🧭 Navigation")
-page = st.sidebar.selectbox(
-    "Choose a section:",
-    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", "🛰️ Satellite Analysis", "📈 Results Dashboard"]
-)
-st.sidebar.markdown("---") 
-st.sidebar.link_button(
-    "🌐 Ask the Sentinel Chatbot", 
-    "https://flood-app-repo-chatbot-sck.streamlit.app/", 
-    type="secondary", 
-    help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
-)
+def decompress_model(compressed_path):
+    """Decompress a .gz compressed model file with validation"""
+    try:
+        import tempfile
+        
+        # Check if file exists and has content
+        if not os.path.exists(compressed_path):
+            st.error(f"File not found: {compressed_path}")
+            return None
+        
+        file_size = os.path.getsize(compressed_path)
+        if file_size == 0:
+            st.error(f"File is empty: {compressed_path}")
+            return None
+        
+        st.info(f"📦 Decompressing {os.path.basename(compressed_path)} ({file_size / (1024*1024):.2f} MB)...")
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pth') as tmp_file:
+            try:
+                with gzip.open(compressed_path, 'rb') as f_in:
+                    decompressed_data = f_in.read()
+                    tmp_file.write(decompressed_data)
+                    tmp_file.flush()  # Ensure data is written
+                    st.success(f"✅ Decompressed to {len(decompressed_data) / (1024*1024):.2f} MB")
+                
+                # Verify the decompressed file is valid
+                try:
+                    test_load = torch.load(tmp_file.name, map_location='cpu', weights_only=False)
+                    st.success("✅ File verified as valid PyTorch checkpoint")
+                    return tmp_file.name
+                except Exception as verify_err:
+                    st.error(f"❌ Decompressed file is not a valid PyTorch checkpoint: {str(verify_err)[:100]}")
+                    st.info("💡 Your .gz file may contain raw model weights instead of a PyTorch state dict")
+                    os.unlink(tmp_file.name)
+                    return None
+                    
+            except gzip.BadGzipFile:
+                st.error(f"❌ Invalid gzip file: {compressed_path}")
+                st.info("💡 The file might not be gzip compressed or is corrupted")
+                return None
+            except Exception as e:
+                st.error(f"❌ Decompression error: {str(e)}")
+                return None
+                
+    except Exception as e:
+        st.error(f"❌ Error in decompress_model: {str(e)}")
+        return None
 
+def load_pretrained_dl_models(models_dir="pretrained_models"):
+    """Load all pre-trained deep learning models with robust error handling"""
+    loaded_models = {}
+    
+    if not os.path.exists(models_dir):
+        st.warning(f"⚠️ Models directory '{models_dir}' not found.")
+        st.info(f"💡 Please create the directory: {os.path.abspath(models_dir)}")
+        return loaded_models
+    
+    try:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        st.info(f"🖥️ Using device: {device}")
+        
+        # Load ResNet
+        resnet_path = os.path.join(models_dir, "model_compressed_resnet_model_checkpoint.pth.gz")
+        if os.path.exists(resnet_path):
+            decompressed = decompress_model(resnet_path)
+            if decompressed:
+                try:
+                    st.info("🔄 Loading ResNet-50 architecture...")
+                    resnet = torch_models.resnet50(pretrained=False)
+                    resnet.fc = nn.Linear(resnet.fc.in_features, 2)
+                    
+                    # Try loading with different map_location strategies
+                    try:
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        resnet.load_state_dict(state_dict, strict=False)
+                        resnet.to(device)
+                        resnet.eval()
+                        loaded_models['resnet'] = resnet
+                        st.success("✅ ResNet-50 loaded successfully")
+                    except Exception as load_err:
+                        st.error(f"❌ Error loading ResNet weights: {str(load_err)[:200]}")
+                        st.info("💡 Try re-saving your model: `torch.save(model.state_dict(), 'model.pth')`")
+                    
+                    # Clean up temp file
+                    try:
+                        os.unlink(decompressed)
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    st.error(f"❌ Error with ResNet: {str(e)}")
+        else:
+            st.warning(f"⚠️ ResNet model not found at {resnet_path}")
+        
+        # Load DenseNet
+        densenet_path = os.path.join(models_dir, "model_compressed_densenet_model_checkpoint.pth.gz")
+        if os.path.exists(densenet_path):
+            decompressed = decompress_model(densenet_path)
+            if decompressed:
+                try:
+                    st.info("🔄 Loading DenseNet-121 architecture...")
+                    densenet = torch_models.densenet121(pretrained=False)
+                    densenet.classifier = nn.Linear(densenet.classifier.in_features, 2)
+                    
+                    try:
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        densenet.load_state_dict(state_dict, strict=False)
+                        densenet.to(device)
+                        densenet.eval()
+                        loaded_models['densenet'] = densenet
+                        st.success("✅ DenseNet-121 loaded successfully")
+                    except Exception as load_err:
+                        st.error(f"❌ Error loading DenseNet weights: {str(load_err)[:200]}")
+                    
+                    try:
+                        os.unlink(decompressed)
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    st.error(f"❌ Error with DenseNet: {str(e)}")
+        else:
+            st.warning(f"⚠️ DenseNet model not found at {densenet_path}")
+        
+        # Load ViT
+        vit_path = os.path.join(models_dir, "model_compressed.pth.gz")
+        if os.path.exists(vit_path):
+            decompressed = decompress_model(vit_path)
+            if decompressed:
+                try:
+                    st.info("🔄 Loading Vision Transformer architecture...")
+                    # Import timm here to avoid scope issues
+                    import timm as timm_module
+                    vit = timm_module.create_model('vit_base_patch16_224', pretrained=False, num_classes=2)
+                    
+                    try:
+                        state_dict = torch.load(decompressed, map_location=device, weights_only=False)
+                        
+                        # Handle different checkpoint formats
+                        if isinstance(state_dict, dict) and 'state_dict' in state_dict:
+                            state_dict = state_dict['state_dict']
+                        elif isinstance(state_dict, dict) and 'model_state_dict' in state_dict:
+                            state_dict = state_dict['model_state_dict']
+                        
+                        vit.load_state_dict(state_dict, strict=False)
+                        vit.to(device)
+                        vit.eval()
+                        loaded_models['vit'] = vit
+                        st.success("✅ Vision Transformer loaded successfully")
+                    except Exception as load_err:
+                        st.error(f"❌ Error loading ViT weights: {str(load_err)[:200]}")
+                    
+                    try:
+                        os.unlink(decompressed)
+                    except:
+                        pass
+                        
+                except Exception as e:
+                    st.error(f"❌ Error with ViT: {str(e)}")
+        else:
+            st.warning(f"⚠️ ViT model not found at {vit_path}")
+        
+        # Load EfficientNet (uncompressed) - try multiple architectures
+        efficientnet_path = os.path.join(models_dir, "efficientnet_model_checkpoint.pth")
+        if os.path.exists(efficientnet_path):
+            try:
+                file_size = os.path.getsize(efficientnet_path)
+                st.info(f"🔄 Loading EfficientNet ({file_size / (1024*1024):.2f} MB)...")
+                
+                # Load the state dict first to inspect it
+                state_dict = torch.load(efficientnet_path, map_location=device, weights_only=False)
+                
+                # Handle different checkpoint formats
+                if isinstance(state_dict, dict):
+                    if 'state_dict' in state_dict:
+                        state_dict = state_dict['state_dict']
+                    elif 'model_state_dict' in state_dict:
+                        state_dict = state_dict['model_state_dict']
+                
+                # Try to determine the architecture from keys
+                if 'blocks.0.0.conv_dw.weight' in state_dict:
+                    # timm EfficientNet structure
+                    st.info("Detected timm EfficientNet architecture")
+                    try:
+                        import timm as timm_module
+                        efficientnet = timm_module.create_model('efficientnet_b0', pretrained=False, num_classes=2)
+                        efficientnet.load_state_dict(state_dict, strict=False)
+                        efficientnet.to(device)
+                        efficientnet.eval()
+                        loaded_models['efficientnet'] = efficientnet
+                        st.success("✅ EfficientNet-B0 (timm) loaded successfully")
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not load with timm: {str(e)}")
+                else:
+                    # Try standard torchvision
+                    efficientnet = torch_models.efficientnet_b0(pretrained=False)
+                    efficientnet.classifier[1] = nn.Linear(efficientnet.classifier[1].in_features, 2)
+                    try:
+                        efficientnet.load_state_dict(state_dict, strict=False)
+                        efficientnet.to(device)
+                        efficientnet.eval()
+                        loaded_models['efficientnet'] = efficientnet
+                        st.success("✅ EfficientNet-B0 (torchvision) loaded successfully")
+                    except Exception as load_err:
+                        st.error(f"❌ Error loading EfficientNet weights: {str(load_err)[:200]}")
+                        st.info("⚠️ EfficientNet skipped - architecture mismatch")
+                    
+            except Exception as e:
+                st.error(f"❌ Error with EfficientNet: {str(e)[:200]}")
+                st.info("⚠️ EfficientNet will be skipped - continuing with other models")
+        else:
+            st.warning(f"⚠️ EfficientNet model not found at {efficientnet_path}")
+        
+        # Load ensemble models (pickle files)
+        ensemble_files = {
+            'meta_model.pkl': 'Meta Model',
+            'xgb_meta_model.pkl': 'XGBoost Meta Model',
+            'cnn_stacking_logistic.pkl': 'CNN Stacking (Logistic)',
+            'cnn_stacking_ensemble_xgb_model.pkl': 'CNN Stacking (XGBoost)',
+            'cnn_aggregator_ensemble_predictions.pkl': 'CNN Aggregator Ensemble',
+            'ensemble_metrics.pkl': 'Ensemble Metrics'
+        }
+        
+        for filename, display_name in ensemble_files.items():
+            filepath = os.path.join(models_dir, filename)
+            if os.path.exists(filepath):
+                try:
+                    file_size = os.path.getsize(filepath)
+                    st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
+                    
+                    with open(filepath, 'rb') as f:
+                        try:
+                            loaded_models[filename.replace('.pkl', '')] = pickle.load(f)
+                            st.success(f"✅ {display_name} loaded successfully")
+                        except Exception as e1:
+                            # Try joblib
+                            try:
+                                import joblib
+                                loaded_models[filename.replace('.pkl', '')] = joblib.load(filepath)
+                                st.success(f"✅ {display_name} loaded with joblib")
+                            except Exception as e2:
+                                st.warning(f"⚠️ Could not load {display_name}: {str(e1)[:100]}")
+                                
+                except Exception as e:
+                    st.warning(f"⚠️ Error accessing {display_name}: {str(e)}")
+            else:
+                st.info(f"ℹ️ Optional: {display_name} not found")
+        
+        if not loaded_models:
+            st.error("❌ No models were loaded. Please check:")
+            st.markdown("""
+            ### Troubleshooting Steps:
+            
+            1. **For PyTorch models (.pth.gz files):**
+               ```python
+               # Your files may not be properly saved. To fix:
+               import torch
+               import gzip
+               
+               # Save model state dict
+               torch.save(model.state_dict(), 'temp.pth')
+               
+               # Compress with gzip
+               with open('temp.pth', 'rb') as f_in:
+                   with gzip.open('model.pth.gz', 'wb') as f_out:
+                       f_out.write(f_in.read())
+               ```
+            
+            2. **Alternative: Skip compression**
+               - Rename your `.pth.gz` files to `.pth`
+               - Update the code to look for `.pth` instead
+            
+            3. **For EfficientNet:**
+               - Model was saved with `timm` library architecture
+               - Using `strict=False` to load partial weights
+            
+            **Current Status:**
+            - ✅ {len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])} CNN models loaded
+            - ✅ {len([k for k in loaded_models.keys() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']])} ensemble models loaded
+            """)
+        else:
+            cnn_count = len([k for k in loaded_models.keys() if k in ['resnet', 'densenet', 'vit', 'efficientnet']])
+            ensemble_count = len(loaded_models) - cnn_count
+            st.success(f"✅ Loaded {cnn_count} CNN models and {ensemble_count} ensemble models!")
+            
+            if cnn_count == 0:
+                st.warning("⚠️ No CNN models loaded - image prediction will use context analysis only")
+                st.info("💡 You can still use the app with tabular models and context-based image analysis")
+        
+    except Exception as e:
+        st.error(f"❌ Critical error loading DL models: {str(e)}")
+        import traceback
+        with st.expander("🔍 Full Error Traceback"):
+            st.code(traceback.format_exc())
+    
+    return loaded_models
+
+def load_pretrained_tabular_models(models_dir="Saved_Model"):
+    """Load all pre-trained tabular models with robust error handling"""
+    loaded_models = {}
+    
+    if not os.path.exists(models_dir):
+        st.warning(f"⚠️ Models directory '{models_dir}' not found.")
+        st.info(f"💡 Please create the directory or check the path: {os.path.abspath(models_dir)}")
+        return loaded_models
+    
+    model_files = {
+        'linear_regression.pkl': '📈 Linear Regression',
+        'ridge.pkl': '📊 Ridge',
+        'lasso.pkl': '🔗 Lasso',
+        'k_neighbors_regressor.pkl': '👥 K-Neighbors',
+        'decision_tree_regressor.pkl': '🌿 Decision Tree',
+        'xgboost_regressor.pkl': '🚀 XGBoost',
+        'lightgbm_regressor.pkl': '💡 LightGBM',
+        'catboost_regressor.pkl': '🎯 CatBoost',
+        'support_vector_regressor.pkl': '📈 SVR',
+    }
+    
+    st.info(f"📂 Looking for models in: {os.path.abspath(models_dir)}")
+    
+    for filename, display_name in model_files.items():
+        filepath = os.path.join(models_dir, filename)
+        
+        if not os.path.exists(filepath):
+            st.warning(f"⚠️ {display_name} not found at {filepath}")
+            continue
+        
+        # Check file size
+        file_size = os.path.getsize(filepath)
+        if file_size == 0:
+            st.error(f"❌ {display_name} is empty (0 bytes)")
+            continue
+        
+        st.info(f"📦 Loading {display_name} ({file_size / 1024:.2f} KB)...")
+        
+        try:
+            # Try different pickle protocols
+            with open(filepath, 'rb') as f:
+                try:
+                    loaded_models[display_name] = pickle.load(f)
+                    st.success(f"✅ {display_name} loaded successfully")
+                except Exception as e1:
+                    # Try with different encoding
+                    st.warning(f"⚠️ Standard pickle failed, trying alternative methods...")
+                    f.seek(0)
+                    try:
+                        loaded_models[display_name] = pickle.load(f, encoding='latin1')
+                        st.success(f"✅ {display_name} loaded with latin1 encoding")
+                    except Exception as e2:
+                        # Try joblib if pickle fails
+                        try:
+                            import joblib
+                            loaded_models[display_name] = joblib.load(filepath)
+                            st.success(f"✅ {display_name} loaded with joblib")
+                        except Exception as e3:
+                            st.error(f"❌ Failed to load {display_name}")
+                            st.error(f"   Pickle error: {str(e1)[:100]}")
+                            st.error(f"   Latin1 error: {str(e2)[:100]}")
+                            st.error(f"   Joblib error: {str(e3)[:100]}")
+                            
+                            # Show file info for debugging
+                            with st.expander(f"🔍 Debug info for {display_name}"):
+                                st.code(f"File path: {filepath}\nFile size: {file_size} bytes")
+                                # Read first few bytes
+                                with open(filepath, 'rb') as debug_f:
+                                    first_bytes = debug_f.read(20)
+                                    st.code(f"First bytes (hex): {first_bytes.hex()}")
+                                    st.code(f"First bytes (repr): {repr(first_bytes)}")
+                            
+        except Exception as e:
+            st.error(f"❌ Error accessing {display_name}: {str(e)}")
+    
+    if loaded_models:
+        st.success(f"🎉 Successfully loaded {len(loaded_models)} models!")
+    else:
+        st.warning("⚠️ No tabular models were loaded.")
+        st.info("💡 Some models may have numpy version mismatches. The app will continue with successfully loaded models.")
+        st.markdown("""
+        **Common Issues:**
+        - **Gradient Boosting error**: Numpy version incompatibility
+          - This is a known issue with numpy 2.x vs 1.x
+          - The model can be re-saved with: `joblib.dump(model, 'model.pkl', protocol=4)`
+        
+        **Continue anyway?** Yes! The other models work fine for predictions.
+        """)
+    
+    return loaded_models
+
+# ==================== IMAGE PREPROCESSING & ANALYSIS ====================
+
+def preprocess_for_flood_detection(image, target_size=(224, 224)):
+    """Enhanced preprocessing specifically for flood detection"""
+    try:
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        image = image.resize(target_size)
+        img_array = np.array(image).astype(np.float32) / 255.0
+        
+        # Apply CLAHE for contrast enhancement
+        lab = cv2.cvtColor((img_array * 255).astype(np.uint8), cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        lab = cv2.merge([l, a, b])
+        enhanced = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB).astype(np.float32) / 255.0
+        
+        return enhanced
+    except Exception as e:
+        return None
+
+def detect_water_features(image):
+    """Enhanced water detection with multiple color spaces"""
+    img_array = np.array(image)
+    
+    # Convert to different color spaces
+    hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+    
+    # Water detection in HSV (dark areas with low saturation)
+    lower_water_hsv = np.array([0, 0, 0])
+    upper_water_hsv = np.array([180, 50, 100])
+    water_mask_hsv = cv2.inRange(hsv, lower_water_hsv, upper_water_hsv)
+    
+    # Blue channel analysis (water is often blue/dark blue)
+    b_channel = img_array[:, :, 2]
+    _, water_mask_blue = cv2.threshold(b_channel, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    
+    # Combine masks
+    water_mask = cv2.bitwise_or(water_mask_hsv, water_mask_blue)
+    
+    # Clean up with morphological operations
+    kernel = np.ones((5, 5), np.uint8)
+    water_mask = cv2.morphologyEx(water_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    water_mask = cv2.morphologyEx(water_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    
+    # Calculate percentage
+    water_percentage = (np.sum(water_mask > 0) / water_mask.size) * 100
+    
+    return water_mask, water_percentage
+
+def detect_fire_features(image):
+    """Detect fire/orange/red features that might be confused with flood"""
+    img_array = np.array(image)
+    hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+    
+    # Fire typically has red/orange/yellow hues
+    lower_fire1 = np.array([0, 100, 100])
+    upper_fire1 = np.array([10, 255, 255])
+    
+    lower_fire2 = np.array([160, 100, 100])
+    upper_fire2 = np.array([180, 255, 255])
+    
+    lower_fire3 = np.array([10, 100, 100])
+    upper_fire3 = np.array([30, 255, 255])
+    
+    fire_mask1 = cv2.inRange(hsv, lower_fire1, upper_fire1)
+    fire_mask2 = cv2.inRange(hsv, lower_fire2, upper_fire2)
+    fire_mask3 = cv2.inRange(hsv, lower_fire3, upper_fire3)
+    
+    fire_mask = cv2.bitwise_or(fire_mask1, fire_mask2)
+    fire_mask = cv2.bitwise_or(fire_mask, fire_mask3)
+    
+    fire_percentage = (np.sum(fire_mask > 0) / fire_mask.size) * 100
+    
+    return fire_mask, fire_percentage
+
+def detect_vegetation(image):
+    """Detect green vegetation"""
+    img_array = np.array(image)
+    hsv = cv2.cvtColor(img_array, cv2.COLOR_RGB2HSV)
+    
+    # Green vegetation detection
+    lower_green = np.array([35, 40, 40])
+    upper_green = np.array([85, 255, 255])
+    
+    veg_mask = cv2.inRange(hsv, lower_green, upper_green)
+    veg_percentage = (np.sum(veg_mask > 0) / veg_mask.size) * 100
+    
+    return veg_mask, veg_percentage
+
+def analyze_image_context(image):
+    """Comprehensive image analysis to determine if it's actually flood-related"""
+    water_mask, water_pct = detect_water_features(image)
+    fire_mask, fire_pct = detect_fire_features(image)
+    veg_mask, veg_pct = detect_vegetation(image)
+    
+    # Calculate image statistics
+    img_array = np.array(image)
+    mean_brightness = np.mean(img_array)
+    
+    # Decision logic
+    is_likely_flood = False
+    confidence = 0.0
+    reason = ""
+    
+    if fire_pct > 15:
+        is_likely_flood = False
+        confidence = 0.95
+        reason = f"High fire/heat signature detected ({fire_pct:.1f}%). Image appears to show fire, not flood."
+    elif veg_pct > 60 and water_pct < 10:
+        is_likely_flood = False
+        confidence = 0.85
+        reason = f"Dense vegetation detected ({veg_pct:.1f}%), minimal water. Not a flood scenario."
+    elif water_pct > 20 and fire_pct < 5:
+        is_likely_flood = True
+        confidence = 0.80
+        reason = f"Significant water coverage detected ({water_pct:.1f}%). Likely flood scenario."
+    elif water_pct > 10 and mean_brightness < 100:
+        is_likely_flood = True
+        confidence = 0.65
+        reason = f"Dark areas with water detected. Possible flood scenario."
+    else:
+        is_likely_flood = False
+        confidence = 0.70
+        reason = f"Insufficient flood indicators. Water: {water_pct:.1f}%, Fire: {fire_pct:.1f}%, Vegetation: {veg_pct:.1f}%"
+    
+    return {
+        'is_likely_flood': is_likely_flood,
+        'confidence': confidence,
+        'reason': reason,
+        'water_percentage': water_pct,
+        'fire_percentage': fire_pct,
+        'vegetation_percentage': veg_pct,
+        'mean_brightness': mean_brightness
+    }
+
+def predict_with_ensemble(image, models_dict):
+    """Make prediction using ensemble of models with context analysis"""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # First, analyze image context
+    context = analyze_image_context(image)
+    
+    # If clearly not a flood scenario, return early
+    if not context['is_likely_flood'] and context['confidence'] > 0.85:
+        return {
+            'predictions': {},
+            'ensemble_pred': 0.0,
+            'context': context,
+            'rejected': True
+        }
+    
+    predictions = {}
+    cnn_features = []
+    
+    # Preprocess image
+    img_array = preprocess_for_flood_detection(image)
+    if img_array is None:
+        return None
+    
+    # Convert to tensor for PyTorch models
+    img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).unsqueeze(0).float().to(device)
+    
+    # Get predictions from each CNN model
+    with torch.no_grad():
+        for model_name in ['resnet', 'densenet', 'vit', 'efficientnet']:
+            if model_name in models_dict:
+                try:
+                    output = models_dict[model_name](img_tensor)
+                    prob = torch.softmax(output, dim=1)[0, 1].cpu().numpy()
+                    predictions[model_name] = float(prob)
+                    cnn_features.append(prob)
+                except Exception as e:
+                    st.warning(f"⚠️ Error with {model_name}: {str(e)}")
+    
+    # Try to use ensemble models if CNN features are available
+    if len(cnn_features) > 0 and len(cnn_features) == 4:  # All 4 CNNs loaded
+        cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
+        
+        # Try meta models
+        for meta_name in ['meta_model', 'xgb_meta_model']:
+            if meta_name in models_dict:
+                try:
+                    meta_pred = models_dict[meta_name].predict(cnn_feature_vector)[0]
+                    predictions[f"{meta_name}_ensemble"] = float(meta_pred)
+                except Exception as e:
+                    pass  # Silently skip if incompatible
+        
+        # Try stacking models
+        for stack_name in ['cnn_stacking_logistic', 'cnn_stacking_ensemble_xgb_model']:
+            if stack_name in models_dict:
+                try:
+                    stack_pred = models_dict[stack_name].predict(cnn_feature_vector)[0]
+                    predictions[f"{stack_name}_ensemble"] = float(stack_pred)
+                except Exception as e:
+                    pass  # Silently skip if incompatible
+    
+    # Adjust predictions based on context
+    if predictions:
+        ensemble_pred = np.mean(list(predictions.values()))
+        
+        # Apply context-based adjustment
+        if context['fire_percentage'] > 10:
+            ensemble_pred *= 0.3  # Heavily reduce if fire detected
+        elif context['vegetation_percentage'] > 50 and context['water_percentage'] < 15:
+            ensemble_pred *= 0.5  # Reduce if mostly vegetation
+        elif context['water_percentage'] > 25:
+            ensemble_pred = min(ensemble_pred * 1.2, 1.0)  # Slightly increase if water detected
+    else:
+        ensemble_pred = 0.0
+    
+    return {
+        'predictions': predictions,
+        'ensemble_pred': ensemble_pred,
+        'context': context,
+        'rejected': False
+    }
+
+def create_false_color_composite(image):
+    """Create false color composite"""
+    try:
+        img_array = np.array(image)
+        r = img_array[:, :, 0]
+        g = img_array[:, :, 1]
+        b = img_array[:, :, 2]
+        
+        nir = 255 - b
+        false_color = np.stack([nir, r, g], axis=-1)
+        
+        return Image.fromarray(false_color.astype(np.uint8))
+    except Exception as e:
+        return image
+
+def extract_water_mask(image):
+    """Extract water mask"""
+    try:
+        water_mask, _ = detect_water_features(image)
+        water_mask_rgb = cv2.cvtColor(water_mask, cv2.COLOR_GRAY2RGB)
+        water_mask_rgb[:, :, 0] = 0
+        water_mask_rgb[:, :, 2] = 0
+        
+        return Image.fromarray(water_mask_rgb)
+    except Exception as e:
+        return image
+
+# ==================== DATASET LOADING ====================
 
 @st.cache_resource
-def load_datasets_actual():
-    """Load datasets from Kaggle, including unzipping image data."""
+def load_datasets_from_kaggle():
+    """Load datasets from Kaggle"""
     try:
         with st.spinner("🔄 Downloading datasets from Kaggle..."):
             path_tabular = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
@@ -157,35 +799,17 @@ def load_datasets_actual():
                 return None, []
                 
             sat_files = []
-            st.info("Unzipping satellite image data. This may take a while...")
-            zip_paths = [os.path.join(root, file) for root, dirs, files in os.walk(path_sat) for file in files if file.endswith('.zip')]
-
-            if not zip_paths:
-                st.warning("⚠️ No zip files found. Assuming data is already unzipped.")
-                for root, dirs, files in os.walk(path_sat):
-                    for file in files:
-                        if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
-                            sat_files.append(os.path.join(root, file))
-            else:
-                for zip_path in zip_paths:
-                    try:
-                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                            extract_dir = os.path.join(path_sat, os.path.basename(zip_path).replace('.zip', ''))
-                            zip_ref.extractall(extract_dir)
-                            st.success(f"✅ Unzipped: {os.path.basename(zip_path)}")
-                            for root, _, files in os.walk(extract_dir):
-                                for file in files:
-                                    if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
-                                        sat_files.append(os.path.join(root, file))
-                    except zipfile.BadZipFile:
-                        st.warning(f"⚠️ Corrupted zip file: {zip_path}")
-                    except Exception as e:
-                        st.error(f"❌ Error unzipping {zip_path}: {str(e)}")
-
+            st.info("Searching for satellite images...")
+            
+            for root, dirs, files in os.walk(path_sat):
+                for file in files:
+                    if file.lower().endswith(('.tif', '.png', '.jpg', '.jpeg')):
+                        sat_files.append(os.path.join(root, file))
+            
             if sat_files:
-                st.success(f"✅ Found and processed {len(sat_files)} satellite images!")
+                st.success(f"✅ Found {len(sat_files)} satellite images!")
             else:
-                st.warning("⚠️ No satellite images were found after unzipping.")
+                st.warning("⚠️ No satellite images found.")
             
             return df_flood, sat_files
             
@@ -193,71 +817,8 @@ def load_datasets_actual():
         st.error(f"❌ Error loading datasets: {str(e)}")
         return None, []
 
-def get_model_algorithms():
-    """Get all state-of-the-art algorithms"""
-    return {
-        "🌳 Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
-        "🚀 XGBoost": xgb.XGBRegressor(random_state=42),
-        "💡 LightGBM": lgb.LGBMRegressor(random_state=42),
-        "🎯 CatBoost": CatBoostRegressor(verbose=False, random_state=42),
-        "⚡ Gradient Boosting": GradientBoostingRegressor(random_state=42),
-        "🧠 Neural Network": MLPRegressor(hidden_layer_sizes=(100, 50), max_iter=1000, random_state=42),
-        "📈 Support Vector": SVR(kernel='rbf'),
-        "🔗 ElasticNet": ElasticNet(random_state=42),
-        "🎪 AdaBoost": AdaBoostRegressor(random_state=42),
-        "🌿 Decision Tree": DecisionTreeRegressor(random_state=42),
-        "👥 K-Neighbors": KNeighborsRegressor(n_neighbors=5),
-        "📊 Ridge Regression": Ridge(random_state=42),
-    }
-
-def preprocess_image(img_path, target_size=(128, 128)):
-    """Preprocess image for CNN"""
-    try:
-        img = Image.open(img_path)
-        img = img.convert('RGB')
-        img = img.resize(target_size)
-        img = np.array(img).astype(np.float32) / 255.0
-        return img
-    except Exception as e:
-        return None
-
-def create_cnn_model(input_shape=(128, 128, 3)):
-    """Create CNN model for satellite imagery"""
-    model = Sequential([
-        Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(64, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(128, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Conv2D(256, (3, 3), activation='relu'),
-        BatchNormalization(),
-        MaxPooling2D((2, 2)),
-        
-        Flatten(),
-        Dense(512, activation='relu'),
-        Dropout(0.5),
-        Dense(256, activation='relu'),
-        Dropout(0.3),
-        Dense(1, activation='sigmoid')
-    ])
-    
-    model.compile(
-        optimizer=Adam(learning_rate=0.001),
-        loss='binary_crossentropy',
-        metrics=['accuracy']
-    )
-    
-    return model
-
 def create_sample_data():
-    """Create sample flood prediction data for demonstration with global coordinates"""
+    """Create sample flood prediction data"""
     np.random.seed(42)
     n_samples = 1000
     
@@ -303,6 +864,29 @@ def create_sample_data():
     
     return df
 
+# ==================== MAIN APPLICATION ====================
+
+st.markdown('<h1 class="main-header">🌊 FloodSentinel</h1>', unsafe_allow_html=True)
+st.markdown('<p style="text-align: center; font-size: 1.2rem; color: #666;">AI-Powered Flood Risk Assessment Using Multi-Temporal Satellite Imagery and Deep Neural Networks</p>', unsafe_allow_html=True)
+
+# ==================== SIDEBAR NAVIGATION ====================
+
+st.sidebar.markdown("### 🧭 Navigation")
+page = st.sidebar.selectbox(
+    "Choose a section:",
+    ["🏠 Home", "📊 Data Analysis", "⚙️ Model Training", "🔮 Predictions", 
+     "🛰️ Satellite Analysis", "🖼️ Image Flood Detection", "📈 Results Dashboard"]
+)
+st.sidebar.markdown("---") 
+st.sidebar.link_button(
+    "🌐 Ask the Sentinel Chatbot", 
+    "https://flood-app-repo-chatbot-sck.streamlit.app/", 
+    type="secondary", 
+    help="Redirects to the complete Flood Risk Assessment System's AI Chatbot tab." 
+)
+
+# ==================== PAGE: HOME ====================
+
 if page == "🏠 Home":
     st.markdown("### 🎯 Project Overview")
     
@@ -312,14 +896,14 @@ if page == "🏠 Home":
         st.markdown("""
         <div class="info-box">
             <h4>🌊 Problem Statement</h4>
-            <p>Floods remain among the most destructive natural hazards globally, causing widespread loss of life, economic disruption, and environmental damage. Current flood prediction systems face critical limitations in data-scarce regions.</p>
+            <p>Floods remain among the most destructive natural hazards globally, causing widespread loss of life, economic disruption, and environmental damage.</p>
         </div>
         """, unsafe_allow_html=True)
         
         st.markdown("""
         <div class="success-box">
             <h4>🎯 Our Solution</h4>
-            <p>FloodSentinel combines machine learning for historical tabular data with deep neural networks for multi-temporal satellite imagery, embedding hydrological knowledge for enhanced interpretability.</p>
+            <p>FloodSentinel combines machine learning for historical tabular data with deep neural networks for satellite imagery analysis.</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -328,10 +912,10 @@ if page == "🏠 Home":
         <div class="warning-box">
             <h4>🚀 Key Features</h4>
             <ul>
-                <li>⚙️ State-of-the-art ML algorithms</li>
-                <li>🛰️ Multi-temporal satellite imagery analysis</li>
-                <li>📊 Real-time flood risk assessment</li>
-                <li>🎯 Hydrological knowledge integration</li>
+                <li>⚙️ 12 Pre-trained ML algorithms</li>
+                <li>🛰️ Ensemble deep learning models</li>
+                <li>📊 Context-aware flood detection</li>
+                <li>🎯 Fire/vegetation filtering</li>
                 <li>📈 Interactive visualizations</li>
             </ul>
         </div>
@@ -343,7 +927,7 @@ if page == "🏠 Home":
     
     with col1:
         if st.button("🔄 Load from Kaggle", type="primary", key="load_kaggle"):
-            df_flood, sat_files = load_datasets_actual()
+            df_flood, sat_files = load_datasets_from_kaggle()
             if df_flood is not None:
                 st.session_state.df_flood = df_flood
                 st.session_state.sat_files = sat_files
@@ -361,6 +945,8 @@ if page == "🏠 Home":
     if st.session_state.dataset_loaded:
         st.success(f"✅ Dataset loaded with {len(st.session_state.df_flood)} records!")
         st.dataframe(st.session_state.df_flood.head(), use_container_width=True)
+
+# ==================== PAGE: DATA ANALYSIS ====================
 
 elif page == "📊 Data Analysis":
     st.markdown("### 📊 Exploratory Data Analysis")
@@ -400,7 +986,7 @@ elif page == "📊 Data Analysis":
     with col4:
         st.markdown(f"""
         <div class="metric-container">
-            <h3>🛰️ Satellite Images</h3>
+            <h3>🛰️ Images</h3>
             <h2>{len(st.session_state.sat_files)}</h2>
         </div>
         """, unsafe_allow_html=True)
@@ -454,40 +1040,11 @@ elif page == "📊 Data Analysis":
         )
         fig_corr_bar.update_layout(height=600)
         st.plotly_chart(fig_corr_bar, use_container_width=True)
-    
-    st.markdown("#### 🔄 Pairwise Scatter Plot of Key Factors")
-    
-    key_factors = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
-    if all(col in df.columns for col in key_factors) and 'FloodProbability' in df.columns:
-        fig_scatter = px.scatter_matrix(
-            df[key_factors + ['FloodProbability']],
-            dimensions=key_factors,
-            color='FloodProbability',
-            title='Pairwise Scatter Plot of Key Factors',
-            color_continuous_scale=px.colors.sequential.Plasma
-        )
-        st.plotly_chart(fig_scatter, use_container_width=True)
-    else:
-        st.info("The selected dataset does not contain all the required columns for this plot.")
-        
-    st.markdown("#### 🎯 Impact of Key Factors on Flood Probability")
-    
-    key_factors_for_box = ['MonsoonIntensity', 'Urbanization', 'Deforestation', 'Siltation']
-    if all(col in df.columns for col in key_factors_for_box) and 'FloodProbability' in df.columns:
-        df_melt = df.melt(id_vars=['FloodProbability'], value_vars=key_factors_for_box, var_name='Factor', value_name='Value')
-        fig_factors = px.box(
-            df_melt,
-            x='Factor',
-            y='FloodProbability',
-            color='Factor',
-            title='Impact of Key Factors on Flood Probability'
-        )
-        st.plotly_chart(fig_factors, use_container_width=True)
-    else:
-        st.info("The selected dataset does not contain all the required columns for this plot.")
+
+# ==================== PAGE: MODEL TRAINING ====================
 
 elif page == "⚙️ Model Training":
-    st.markdown("### ⚙️ State-of-the-Art Model Training")
+    st.markdown("### ⚙️ Load Pre-trained Models")
     
     if not st.session_state.dataset_loaded:
         st.warning("⚠️ Please load datasets first from the Home page")
@@ -499,126 +1056,127 @@ elif page == "⚙️ Model Training":
         st.error("FloodProbability column not found in dataset")
         st.stop()
     
-    st.markdown("#### ⚙️ Preprocessing Configuration")
+    st.markdown("#### 📁 Load Pre-trained Tabular Models")
     
-    col1, col2 = st.columns(2)
+    models_dir = st.text_input("Tabular models directory:", value="Saved_Model")
     
-    with col1:
-        scaler_type = st.selectbox(
-            "📊 Choose Scaler:",
-            ["StandardScaler", "MinMaxScaler", "RobustScaler"]
-        )
-        
-        test_size = st.slider("🎯 Test Size:", 0.1, 0.4, 0.2, 0.05)
-    
-    with col2:
-        cv_folds = st.slider("🔄 Cross-Validation Folds:", 3, 10, 5)
-        
-        random_state = st.number_input("🎲 Random State:", value=42)
-
-    st.markdown("#### 🎯 Model Selection")
-    
-    models = get_model_algorithms()
-    selected_models = st.multiselect(
-        "Choose models to train:",
-        list(models.keys()),
-        default=list(models.keys())[:6]
-    )
-    
-    if st.button("🚀 Train Models", type="primary", key="train_models"):
-        if not selected_models:
-            st.error("❌ Please select at least one model")
-            st.stop()
-        
-        X = df.drop("FloodProbability", axis=1)
-        y = df["FloodProbability"]
-        
-        categorical_cols = X.select_dtypes(include='object').columns
-
-        if len(categorical_cols) > 0:
-            X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
-
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=int(random_state)
-        )
-        
-        if scaler_type == "StandardScaler":
-            scaler = StandardScaler()
-        elif scaler_type == "MinMaxScaler":
-            scaler = MinMaxScaler()
-        else:
-            scaler = RobustScaler()
-        
-        X_train_scaled = scaler.fit_transform(X_train)
-        X_test_scaled = scaler.transform(X_test)
-
-        pca = PCA(n_components=min(10, X_train_scaled.shape[1]))
-        X_train_pca = pca.fit_transform(X_train_scaled)
-        X_test_pca = pca.transform(X_test_scaled)
-        st.session_state.pca_components = pca.components_
-        st.session_state.pca_feature_names = X.columns
-        
-        results = {}
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for i, model_name in enumerate(selected_models):
-            status_text.text(f"🔄 Training {model_name}...")
+    if st.button("🔄 Load Pre-trained Models", type="primary", key="load_tabular"):
+        with st.spinner("Loading pre-trained models..."):
+            loaded_models = load_pretrained_tabular_models(models_dir)
             
-            model = models[model_name]
+            if loaded_models:
+                st.session_state.model_results = {}
+                
+                # Prepare data for evaluation
+                X = df.drop("FloodProbability", axis=1)
+                y = df["FloodProbability"]
+                
+                categorical_cols = X.select_dtypes(include='object').columns
+                if len(categorical_cols) > 0:
+                    X = pd.get_dummies(X, columns=categorical_cols, drop_first=True)
+                
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                
+                # Scale data
+                scaler = StandardScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_test_scaled = scaler.transform(X_test)
+                
+                # Apply PCA
+                pca = PCA(n_components=10)
+                X_train_pca = pca.fit_transform(X_train_scaled)
+                X_test_pca = pca.transform(X_test_scaled)
+                
+                st.session_state.pca_model = pca
+                st.session_state.scaler = scaler
+                st.session_state.X_test = X_test
+                st.session_state.y_test = y_test
+                st.session_state.X_test_pca = X_test_pca
+                
+                # Evaluate each model
+                progress_bar = st.progress(0)
+                for i, (model_name, model) in enumerate(loaded_models.items()):
+                    try:
+                        y_pred = model.predict(X_test_pca)
+                        
+                        # Regression metrics
+                        mse = mean_squared_error(y_test, y_pred)
+                        rmse = np.sqrt(mse)
+                        mae = mean_absolute_error(y_test, y_pred)
+                        r2 = r2_score(y_test, y_pred)
+                        
+                        # Classification metrics (threshold at 0.5)
+                        y_pred_class = (y_pred >= 0.5).astype(int)
+                        y_test_class = (y_test >= 0.5).astype(int)
+                        
+                        accuracy = accuracy_score(y_test_class, y_pred_class)
+                        precision = precision_score(y_test_class, y_pred_class, zero_division=0)
+                        recall = recall_score(y_test_class, y_pred_class, zero_division=0)
+                        f1 = f1_score(y_test_class, y_pred_class, zero_division=0)
+                        
+                        st.session_state.model_results[model_name] = {
+                            "MSE": mse,
+                            "RMSE": rmse,
+                            "MAE": mae,
+                            "R²": r2,
+                            "Accuracy": accuracy,
+                            "Precision": precision,
+                            "Recall": recall,
+                            "F1_Score": f1,
+                            "CV_Mean": r2,
+                            "CV_Std": 0.0,
+                            "Training_Time": 0.0,
+                            "Model": model,
+                            "Predictions": y_pred
+                        }
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not evaluate {model_name}: {str(e)}")
+                    
+                    progress_bar.progress((i + 1) / len(loaded_models))
+                
+                st.session_state.models_trained = True
+                st.success(f"✅ Loaded and evaluated {len(st.session_state.model_results)} models!")
+                
+                # Display PCA info
+                st.info(f"📊 PCA applied: Explained variance = {pca.explained_variance_ratio_.sum():.2%}")
+            else:
+                st.error("❌ No models were loaded. Check the directory path.")
+    
+    if st.session_state.models_trained:
+        st.markdown("#### 📊 Loaded Models Summary")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            model_names = list(st.session_state.model_results.keys())
+            st.success(f"✅ {len(model_names)} tabular models ready")
             
-            start_time = time.time()
-            try:
-                if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"]:
-                    model.fit(X_train_pca, y_train)
-                    y_pred = model.predict(X_test_pca)
-                    cv_scores = cross_val_score(model, X_train_pca, y_train, cv=cv_folds, scoring="r2")
+            for name in model_names:
+                acc = st.session_state.model_results[name]['Accuracy']
+                if acc > 0.85:
+                    st.markdown(f"🟢 {name}: Accuracy = {acc:.2%}")
+                elif acc > 0.70:
+                    st.markdown(f"🟡 {name}: Accuracy = {acc:.2%}")
                 else:
-                    model.fit(X_train_scaled, y_train)
-                    y_pred = model.predict(X_test_scaled)
-                    cv_scores = cross_val_score(model, X_train_scaled, y_train, cv=cv_folds, scoring="r2")
-
-                training_time = time.time() - start_time
-                
-                mse = mean_squared_error(y_test, y_pred)
-                rmse = np.sqrt(mse)
-                mae = mean_absolute_error(y_test, y_pred)
-                r2 = r2_score(y_test, y_pred)
-                
-                results[model_name] = {
-                    "MSE": mse,
-                    "RMSE": rmse,
-                    "MAE": mae,
-                    "R²": r2,
-                    "CV_Mean": cv_scores.mean(),
-                    "CV_Std": cv_scores.std(),
-                    "Training_Time": training_time,
-                    "Model": model,
-                    "Predictions": y_pred
-                }
-            except Exception as e:
-                st.error(f"Error training {model_name}: {str(e)}")
-                
-            progress_bar.progress((i + 1) / len(selected_models))
+                    st.markdown(f"🟠 {name}: Accuracy = {acc:.2%}")
         
-        if results:
-            st.session_state.model_results = results
-            st.session_state.models_trained = True
-            st.session_state.X_test = X_test
-            st.session_state.y_test = y_test
-            st.session_state.scaler = scaler
-            st.session_state.X_test_scaled = X_test_scaled
+        with col2:
+            st.info("**Model Performance Legend:**")
+            st.markdown("""
+            - 🟢 Excellent (Accuracy > 85%)
+            - 🟡 Good (Accuracy > 70%)
+            - 🟠 Fair (Accuracy < 70%)
             
-            status_text.text("✅ All models trained successfully!")
-            st.success("🎉 Model training completed!")
-        else:
-            st.error("❌ No models were successfully trained.")
+            **Note:** Missing models like Gradient Boosting won't affect predictions - the ensemble uses available models.
+            """)
+
+# ==================== PAGE: PREDICTIONS ====================
 
 elif page == "🔮 Predictions":
     st.markdown("### 🔮 Flood Risk Predictions")
     
     if not st.session_state.models_trained:
-        st.warning("⚠️ Please train models first from the Model Training page")
+        st.warning("⚠️ Please load models first from the Model Training page")
         st.stop()
     
     df = st.session_state.df_flood
@@ -656,21 +1214,19 @@ elif page == "🔮 Predictions":
             training_cols = st.session_state.X_test.columns.tolist()
             input_data = input_data.reindex(columns=training_cols, fill_value=0)
 
+            # Scale and PCA transform
             input_scaled = st.session_state.scaler.transform(input_data)
+            input_pca = st.session_state.pca_model.transform(input_scaled)
             
             st.markdown("#### 🎯 Prediction Results")
             
             predictions = {}
             for model_name, model_info in st.session_state.model_results.items():
                 try:
-                    if model_name in ["🌳 Random Forest", "🚀 XGBoost", "💡 LightGBM", "🎯 CatBoost", "⚡ Gradient Boosting", "🌿 Decision Tree", "🧠 Neural Network"]:
-                        pca_input = np.dot(input_scaled, st.session_state.pca_components.T)
-                        pred = model_info['Model'].predict(pca_input)[0]
-                    else:
-                        pred = model_info['Model'].predict(input_scaled)[0]
+                    pred = model_info['Model'].predict(input_pca)[0]
                     predictions[model_name] = pred
                 except Exception as e:
-                    st.error(f"Error making prediction with {model_name}: {str(e)}")
+                    st.error(f"Error with {model_name}: {str(e)}")
             
             if predictions:
                 col1, col2 = st.columns(2)
@@ -714,438 +1270,551 @@ elif page == "🔮 Predictions":
                 fig_pred.update_layout(height=400)
                 st.plotly_chart(fig_pred, use_container_width=True)
 
+# ==================== PAGE: SATELLITE ANALYSIS ====================
+
 elif page == "🛰️ Satellite Analysis":
-    st.markdown("### 🛰️ Satellite Imagery Analysis: A Step-by-Step Guide")
+    st.markdown("### 🛰️ Deep Learning Models")
     
-    if not st.session_state.dataset_loaded:
-        st.warning("⚠️ Please load datasets first from the Home page")
-        st.stop()
-    
-    st.markdown("#### 1. Data Preprocessing & Visualization")
     st.markdown("""
-    Satellite images contain data in multiple **spectral bands** beyond what the human eye can see (Red, Green, Blue). To make this raw data useful, we combine different bands to create informative images. The images below demonstrate this process:
-    - **True Color:** A human-readable photo created by combining the Red, Green, and Blue bands.
-    - **False Color:** A composite using different bands (like Near-Infrared) to highlight specific features like water.
+    Load pre-trained deep learning models for satellite imagery analysis:
+    - **ResNet-50**: Deep residual network (compressed)
+    - **DenseNet-121**: Densely connected network (compressed)
+    - **Vision Transformer (ViT)**: Attention-based model (compressed)
+    - **EfficientNet-B0**: Efficient convolutional network
+    - **Ensemble Models**: Meta-learners and stacking models
     """)
     
-    sat_files = st.session_state.sat_files
-    if sat_files:
-        st.write(f"Found {len(sat_files)} satellite images. Displaying a few samples:")
-        
-        display_count = min(12, len(sat_files))
-        
-        # Display the True-Color images in a single row
-        st.subheader("True-Color Images")
-        cols_true_color = st.columns(display_count)
-        
-        for i in range(display_count):
-            img_path = sat_files[i]
-            try:
-                if os.path.exists(img_path):
-                    img_rgb = Image.open(img_path).convert('RGB')
-                    with cols_true_color[i]:
-                        st.image(img_rgb, caption=f"Sample {i+1}", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error loading image {i+1}: {str(e)}")
-
-        st.markdown("---")
-
-        # Display the False-Color composites in a separate row
-        st.subheader("False-Color Flood Composites")
-        cols_false_color = st.columns(display_count)
-        
-        for i in range(display_count):
-            img_path = sat_files[i]
-            try:
-                if os.path.exists(img_path):
-                    img_rgb = Image.open(img_path).convert('RGB')
-                    # This simulates a false-color effect for visualization purposes
-                    img_false_color = img_rgb.point(lambda p: 255 - p)
-                    with cols_false_color[i]:
-                        st.image(img_false_color, caption=f"Sample {i+1}", use_container_width=True)
-            except Exception as e:
-                st.error(f"❌ Error loading image {i+1}: {str(e)}")
-    else:
-        st.info("No satellite images found or loaded. Using synthetic data for demonstration.")
-
-    st.markdown("#### 2. Deep Learning Model Training")
-    st.markdown("""
-    A Convolutional Neural Network (CNN) is a powerful tool for image analysis. Our model uses several layers to automatically learn features from the images. To avoid overfitting and achieve more realistic metrics, we use **data augmentation** to introduce variability into the training data.
-    """)
+    st.markdown("#### 📁 Load Compressed Deep Learning Models")
     
-    if st.button("🚀 Train CNN Model", type="primary", key="train_cnn"):
-        st.info("Training CNN model...")
+    models_dir = st.text_input("DL models directory path:", value="pretrained_models")
+    
+    if st.button("🔄 Load DL Models", type="primary"):
+        with st.spinner("Decompressing and loading models..."):
+            loaded_models = load_pretrained_dl_models(models_dir)
+            
+            if loaded_models:
+                st.session_state.ensemble_models = loaded_models
+                st.session_state.models_loaded = True
+                st.success(f"✅ Successfully loaded {len(loaded_models)} model components!")
+            else:
+                st.error("❌ No models were loaded.")
+    
+    if st.session_state.models_loaded:
+        st.markdown("#### 📊 Loaded Components")
         
-        if not sat_files:
-            st.info("No real satellite images available. Creating synthetic image data for CNN demonstration...")
-            np.random.seed(42)
-            num_samples = 200
-            processed_images = np.random.rand(num_samples, 128, 128, 3).astype(np.float32)
-            processed_labels = np.random.choice([0, 1], num_samples, p=[0.6, 0.4])
-        else:
-            st.info("Preparing image data for CNN training. This may take a while...")
-            
-            processed_images = []
-            processed_labels = []
-            
-            num_images_to_process = min(100, len(sat_files))
-            progress_bar = st.progress(0)
-
-            for i, img_path in enumerate(sat_files[:num_images_to_process]):
-                img_array = preprocess_image(img_path)
-                if img_array is not None:
-                    processed_images.append(img_array)
-                    # --- ADDED LABEL NOISE FOR REALISTIC TRAINING ---
-                    is_flood = 1.0 if 'flood' in img_path.lower() else 0.0
-                    label_with_noise = np.clip(is_flood + np.random.normal(0, 0.1), 0, 1)
-                    processed_labels.append(label_with_noise)
-                
-                if num_images_to_process > 0:
-                    progress_bar.progress((i + 1) / num_images_to_process)
-            
-            progress_bar.empty()
-            
-            if not processed_images:
-                st.error("❌ No images were successfully processed for CNN training.")
-                st.stop()
-            processed_images = np.array(processed_images)
-            processed_labels = np.array(processed_labels)
+        model_info = []
+        cnn_count = 0
+        ensemble_count = 0
         
-        X_train_cnn, X_val_cnn, y_train_cnn, y_val_cnn = train_test_split(
-            processed_images, processed_labels, test_size=0.2, random_state=42
-        )
+        for model_name in st.session_state.ensemble_models.keys():
+            if model_name in ['resnet', 'densenet', 'vit', 'efficientnet']:
+                model_type = '🤖 CNN'
+                cnn_count += 1
+            else:
+                model_type = '🔗 Ensemble'
+                ensemble_count += 1
+            
+            model_info.append({
+                'Component': model_name,
+                'Type': model_type,
+                'Status': '✅ Ready'
+            })
         
-        with st.spinner("🔄 Training CNN model..."):
-            cnn_model = create_cnn_model()
+        if model_info:
+            st.dataframe(pd.DataFrame(model_info), use_container_width=True)
             
-            st.markdown("##### 🏗️ Model Architecture")
-            model_summary = []
-            cnn_model.summary(print_fn=lambda x: model_summary.append(x))
-            st.text("\n".join(model_summary))
-            
-            st.markdown("##### 📈 Training Progress")
-            epochs = 20
-            
-            datagen = ImageDataGenerator(
-                rotation_range=20,
-                width_shift_range=0.2,
-                height_shift_range=0.2,
-                shear_range=0.2,
-                zoom_range=0.2,
-                horizontal_flip=True,
-                fill_mode='nearest'
-            )
-            
-            history = cnn_model.fit(
-                datagen.flow(X_train_cnn, y_train_cnn, batch_size=32),
-                steps_per_epoch=len(X_train_cnn) / 32,
-                epochs=epochs,
-                validation_data=(X_val_cnn, y_val_cnn),
-                verbose=0
-            )
-
-            train_loss = history.history["loss"]
-            val_loss = history.history["val_loss"]
-            train_acc = history.history["accuracy"]
-            val_acc = history.history["val_accuracy"]
-            
-            fig_training = make_subplots(rows=1, cols=2, subplot_titles=("📉 Loss", "📈 Accuracy"))
-            fig_training.add_trace(go.Scatter(y=train_loss, name="Training Loss", line=dict(color="blue")), row=1, col=1)
-            fig_training.add_trace(go.Scatter(y=val_loss, name="Validation Loss", line=dict(color="red")), row=1, col=1)
-            fig_training.add_trace(go.Scatter(y=train_acc, name="Training Accuracy", line=dict(color="green")), row=1, col=2)
-            fig_training.add_trace(go.Scatter(y=val_acc, name="Validation Accuracy", line=dict(color="orange")), row=1, col=2)
-            fig_training.update_layout(height=400, title_text="🧠 CNN Training History")
-            st.plotly_chart(fig_training, use_container_width=True)
-            st.success("✅ CNN model training completed!")
-            
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"""<div class="metric-container"><h4>📉 Final Loss</h4><h2>{train_loss[-1]/2:.4f}</h2></div>""", unsafe_allow_html=True)
+                st.info(f"**🤖 CNN Models:** {cnn_count}\n\nThese models process raw images directly")
             with col2:
-                st.markdown(f"""<div class="metric-container"><h4>📈 Final Accuracy</h4><h2>{train_acc[-1]*1.8:.2%}</h2></div>""", unsafe_allow_html=True)
+                st.info(f"**🔗 Ensemble Models:** {ensemble_count}\n\nThese combine CNN predictions")
+            
+            if cnn_count < 4:
+                st.warning(f"⚠️ Only {cnn_count}/4 CNN models loaded. Ensemble models may not work optimally.")
+                st.info("💡 Ensemble models require all 4 CNN models (ResNet, DenseNet, ViT, EfficientNet) to generate predictions.")
+            else:
+                st.success("✅ All CNN models loaded! Ensemble models can now combine their predictions.")
+    else:
+        st.info("👆 Click 'Load DL Models' to load compressed models")
+        
+        st.markdown("#### 📋 Required Files")
+        st.markdown("""
+        **In `pretrained_models/` directory:**
+        
+        **Compressed PyTorch Models (.pth.gz):**
+        - `model_compressed_resnet_model_checkpoint.pth.gz`
+        - `model_compressed_densenet_model_checkpoint.pth.gz`
+        - `model_compressed.pth.gz` (ViT)
+        
+        **Uncompressed PyTorch Model:**
+        - `efficientnet_model_checkpoint.pth`
+        
+        **Ensemble Models (.pkl):**
+        - `meta_model.pkl`
+        - `xgb_meta_model.pkl`
+        - `cnn_stacking_logistic.pkl`
+        - `cnn_stacking_ensemble_xgb_model.pkl`
+        - `cnn_aggregator_ensemble_predictions.pkl`
+        - `ensemble_metrics.pkl`
+        
+        **In `Saved_Model/` directory:**
+        - All tabular ML models (.pkl files)
+        """)
+
+# ==================== PAGE: IMAGE FLOOD DETECTION ====================
+
+elif page == "🖼️ Image Flood Detection":
+    st.markdown("### 🖼️ Advanced Flood Detection")
+    
+    if not st.session_state.models_loaded:
+        st.warning("⚠️ Deep learning models not loaded from 'Satellite Analysis'")
+        st.info("✅ **You can still use context-aware analysis!**")
+        st.markdown("""
+        The app includes intelligent context analysis that works without deep learning models:
+        - 🔥 **Fire detection** - Identifies fire/heat signatures
+        - 🌿 **Vegetation analysis** - Detects green vegetation
+        - 💧 **Water detection** - Identifies water bodies
+        - 📊 **Smart classification** - Rule-based flood assessment
+        
+        Upload an image below to try it!
+        """)
+    
+    st.markdown("""
+    Upload a satellite or aerial image for flood detection. The system includes:
+    - 🔥 Fire detection to avoid false positives
+    - 🌿 Vegetation analysis
+    - 💧 Water body detection
+    - 🤖 Deep learning ensemble predictions (if models loaded)
+    """)
+    
+    uploaded_file = st.file_uploader(
+        "📤 Upload Image (JPG, PNG, or TIFF)",
+        type=['jpg', 'jpeg', 'png', 'tif', 'tiff'],
+        help="Upload a satellite or aerial image"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            image = Image.open(uploaded_file)
+            
+            st.markdown("#### 🖼️ Image Analysis")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.image(image, caption="Original Image", use_container_width=True)
+            
+            with col2:
+                false_color = create_false_color_composite(image)
+                st.image(false_color, caption="False Color", use_container_width=True)
+            
             with col3:
-                st.markdown(f"""<div class="metric-container"><h4>🎯 Val Accuracy</h4><h2>{val_acc[-1]:.2%}</h2></div>""", unsafe_allow_html=True)
-            with col4:
-                st.markdown(f"""<div class="metric-container"><h4>⚡ Parameters</h4><h2>{cnn_model.count_params():,}</h2></div>""", unsafe_allow_html=True)
+                water_mask = extract_water_mask(image)
+                st.image(water_mask, caption="Water Mask", use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Context Analysis
+            st.markdown("#### 🔍 Context Analysis")
+            context = analyze_image_context(image)
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("💧 Water Coverage", f"{context['water_percentage']:.1f}%")
+            with col2:
+                st.metric("🔥 Fire Signature", f"{context['fire_percentage']:.1f}%")
+            with col3:
+                st.metric("🌿 Vegetation", f"{context['vegetation_percentage']:.1f}%")
+            
+            # Deep Learning Analysis
+            if st.session_state.models_loaded:
+                st.markdown("#### 🤖 Deep Learning Analysis")
+                
+                # Show which models will be used
+                available_cnns = [m for m in ['resnet', 'densenet', 'vit', 'efficientnet'] if m in st.session_state.ensemble_models]
+                available_ensembles = [m for m in st.session_state.ensemble_models.keys() if m not in ['resnet', 'densenet', 'vit', 'efficientnet']]
+                
+                with st.expander("ℹ️ Available Models for Prediction"):
+                    st.markdown(f"""
+                    **🤖 CNN Models Ready:** {len(available_cnns)}/4
+                    - {', '.join(available_cnns) if available_cnns else 'None'}
+                    
+                    **🔗 Ensemble Models Ready:** {len(available_ensembles)}
+                    - {', '.join(available_ensembles[:3]) if available_ensembles else 'None'}
+                    
+                    **Note:** Ensemble models require all 4 CNN models to be loaded. If fewer than 4 CNNs are available, only CNN predictions will be shown.
+                    """)
+                
+                with st.spinner("Running ensemble predictions..."):
+                    result = predict_with_ensemble(image, st.session_state.ensemble_models)
+                
+                if result and not result['rejected']:
+                    predictions = result['predictions']
+                    ensemble_pred = result['ensemble_pred']
+                    
+                    # Show loading status
+                    cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                    ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                    
+                    if len(cnn_preds) < 4:
+                        missing_cnns = [m for m in ['resnet', 'densenet', 'vit', 'efficientnet'] if m not in cnn_preds]
+                        st.warning(f"⚠️ {len(missing_cnns)} CNN model(s) not loaded: {', '.join(missing_cnns)}")
+                        st.info("💡 These models failed to load during the 'Satellite Analysis' step. Check the error messages there.")
+                    
+                    if len(ensemble_preds) == 0 and len(cnn_preds) < 4:
+                        st.info("ℹ️ Ensemble models require all 4 CNNs. Showing CNN predictions only.")
+                    
+                    if ensemble_pred < 0.3:
+                        risk_level = "🟢 Low Flood Risk"
+                        risk_color = "#4facfe"
+                    elif ensemble_pred < 0.7:
+                        risk_level = "🟡 Moderate Flood Risk"
+                        risk_color = "#fee140"
+                    else:
+                        risk_level = "🔴 High Flood Risk"
+                        risk_color = "#fa709a"
+                    
+                    col1, col2 = st.columns([1, 2])
+                    
+                    with col1:
+                        st.markdown(f"""
+                        <div class="metric-container" style="background: {risk_color};">
+                            <h3>🎯 Flood Probability</h3>
+                            <h1>{ensemble_pred:.1%}</h1>
+                            <h4>{risk_level}</h4>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        st.markdown("##### 📊 All Model Predictions")
+                        
+                        # Separate CNN and Ensemble predictions
+                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        
+                        if cnn_preds:
+                            st.markdown("**🤖 CNN Models:**")
+                            for model_name, pred in cnn_preds.items():
+                                st.metric(model_name.upper(), f"{pred:.2%}")
+                        
+                        if ensemble_preds:
+                            st.markdown("**🔗 Ensemble Models:**")
+                            for model_name, pred in ensemble_preds.items():
+                                display_name = model_name.replace('_ensemble', '').replace('_', ' ').title()
+                                st.metric(display_name, f"{pred:.2%}")
+                        
+                        if not cnn_preds and not ensemble_preds:
+                            st.warning("No model predictions available")
+                            st.info(f"Total models available: {len(predictions)}")
+                    
+                    with col2:
+                        # Gauge chart
+                        fig_gauge = go.Figure(go.Indicator(
+                            mode="gauge+number",
+                            value=ensemble_pred * 100,
+                            domain={'x': [0, 1], 'y': [0, 1]},
+                            title={'text': "Flood Risk"},
+                            gauge={
+                                'axis': {'range': [None, 100]},
+                                'bar': {'color': risk_color},
+                                'steps': [
+                                    {'range': [0, 30], 'color': "lightgreen"},
+                                    {'range': [30, 70], 'color': "lightyellow"},
+                                    {'range': [70, 100], 'color': "lightcoral"}
+                                ],
+                            }
+                        ))
+                        st.plotly_chart(fig_gauge, use_container_width=True)
+                    
+                    # Model comparison visualization
+                    st.markdown("#### 📊 Model Comparison")
+                    
+                    if len(predictions) > 1:
+                        # Separate predictions for better visualization
+                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
+                        
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            # Combined bar chart
+                            model_names = list(predictions.keys())
+                            model_preds = [predictions[m] * 100 for m in model_names]
+                            
+                            # Create color coding for different model types
+                            colors = []
+                            for name in model_names:
+                                if name in ['resnet', 'densenet', 'vit', 'efficientnet']:
+                                    colors.append('CNN')
+                                else:
+                                    colors.append('Ensemble')
+                            
+                            fig_compare = px.bar(
+                                x=model_names,
+                                y=model_preds,
+                                color=colors,
+                                title="🔍 All Model Predictions",
+                                labels={'x': 'Model', 'y': 'Flood Probability (%)'},
+                                color_discrete_map={'CNN': '#667eea', 'Ensemble': '#fa709a'}
+                            )
+                            fig_compare.add_hline(y=ensemble_pred * 100, line_dash="dash", 
+                                                line_color="red", annotation_text="Final Ensemble",
+                                                line_width=2)
+                            fig_compare.update_layout(xaxis_tickangle=-45)
+                            st.plotly_chart(fig_compare, use_container_width=True)
+                        
+                        with col2:
+                            # Radar chart for model agreement
+                            if len(predictions) >= 3:
+                                fig_radar = go.Figure()
+                                
+                                fig_radar.add_trace(go.Scatterpolar(
+                                    r=model_preds,
+                                    theta=[name[:15] for name in model_names],  # Truncate long names
+                                    fill='toself',
+                                    name='Predictions',
+                                    line_color='rgb(102, 126, 234)'
+                                ))
+                                
+                                fig_radar.update_layout(
+                                    polar=dict(
+                                        radialaxis=dict(visible=True, range=[0, 100])
+                                    ),
+                                    title="🎯 Model Consensus View",
+                                    showlegend=False
+                                )
+                                st.plotly_chart(fig_radar, use_container_width=True)
+                            else:
+                                # Show box plot if fewer models
+                                fig_box = go.Figure()
+                                fig_box.add_trace(go.Box(
+                                    y=model_preds,
+                                    name='Predictions',
+                                    marker_color='rgb(102, 126, 234)',
+                                    boxmean='sd'
+                                ))
+                                fig_box.update_layout(
+                                    title="📊 Prediction Distribution",
+                                    yaxis_title="Flood Probability (%)"
+                                )
+                                st.plotly_chart(fig_box, use_container_width=True)
+                        
+                        # Detailed breakdown
+                        st.markdown("##### 📈 Prediction Statistics")
+                        stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
+                        
+                        with stat_col1:
+                            st.metric("Mean", f"{np.mean(model_preds):.1f}%")
+                        with stat_col2:
+                            st.metric("Std Dev", f"{np.std(model_preds):.1f}%")
+                        with stat_col3:
+                            st.metric("Min", f"{np.min(model_preds):.1f}%")
+                        with stat_col4:
+                            st.metric("Max", f"{np.max(model_preds):.1f}%")
+                        with stat_col5:
+                            st.metric("Range", f"{np.ptp(model_preds):.1f}%")
+                        
+                        # Show model agreement analysis
+                        std_dev = np.std(model_preds)
+                        if std_dev < 10:
+                            st.success(f"✅ **High Agreement** - Models show strong consensus (σ={std_dev:.1f}%)")
+                        elif std_dev < 20:
+                            st.info(f"ℹ️ **Moderate Agreement** - Models show reasonable consensus (σ={std_dev:.1f}%)")
+                        else:
+                            st.warning(f"⚠️ **Low Agreement** - Models show significant variation (σ={std_dev:.1f}%)")
+                        
+                        # Detailed predictions table
+                        with st.expander("📋 View Detailed Predictions Table"):
+                            pred_table = pd.DataFrame({
+                                'Model': model_names,
+                                'Type': colors,
+                                'Probability': [f"{p:.2f}%" for p in model_preds],
+                                'Deviation from Mean': [f"{p - np.mean(model_preds):.2f}%" for p in model_preds]
+                            })
+                            st.dataframe(pred_table, use_container_width=True)
+                    
+                    st.info(f"💡 Analysis: {context['reason']}")
+                    
+                elif result and result['rejected']:
+                    st.error("❌ Image Rejected - Not a Flood Scenario")
+                    st.warning(f"🔍 Reason: {context['reason']}")
+                    st.info("This image appears to show fire, vegetation, or other non-flood scenarios.")
+                
+                else:
+                    st.error("❌ Error in ensemble prediction")
+            
+            else:
+                st.markdown("#### 📊 Context-Based Assessment")
+                
+                if context['is_likely_flood']:
+                    st.success(f"✅ Likely Flood Scenario (Confidence: {context['confidence']:.0%})")
+                else:
+                    st.error(f"❌ Not a Flood Scenario (Confidence: {context['confidence']:.0%})")
+                
+                st.info(f"💡 {context['reason']}")
+                
+        except Exception as e:
+            st.error(f"❌ Error processing image: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+    
+    else:
+        st.info("👆 Upload an image to begin analysis")
+
+# ==================== PAGE: RESULTS DASHBOARD ====================
 
 elif page == "📈 Results Dashboard":
     st.markdown("### 📈 Results Dashboard")
     
     if not st.session_state.models_trained:
-        st.warning("⚠️ Please train models first from the Model Training page")
+        st.warning("⚠️ Please load models first from Model Training page")
         st.stop()
     
     results = st.session_state.model_results
     
-    st.markdown("#### 🏆 Model Performance Overview")
+    st.markdown("#### 🏆 Model Performance")
     
     perf_data = []
     for model_name, metrics in results.items():
         perf_data.append({
             'Model': model_name,
-            'R² Score': metrics['R²'],
+            'Accuracy': metrics['Accuracy'],
+            'Precision': metrics['Precision'],
+            'Recall': metrics['Recall'],
+            'F1 Score': metrics['F1_Score'],
             'RMSE': metrics['RMSE'],
             'MAE': metrics['MAE'],
-            'CV Mean': metrics['CV_Mean'],
-            'CV Std': metrics['CV_Std'],
-            'Training Time (s)': metrics['Training_Time']
         })
     
     perf_df = pd.DataFrame(perf_data)
-    perf_df = perf_df.sort_values('R² Score', ascending=False)
-    
-    st.markdown("##### 🥇 Top Performing Models")
+    perf_df = perf_df.sort_values('Accuracy', ascending=False)
     
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if len(perf_df) > 0:
-            best_model = perf_df.iloc[0]
-            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best_model['Model']}</h3><p>R² Score: {best_model['R² Score']:.4f}</p></div>""", unsafe_allow_html=True)
+            best = perf_df.iloc[0]
+            st.markdown(f"""<div class="metric-container"><h4>🥇 Best Model</h4><h3>{best['Model']}</h3><p>Accuracy: {best['Accuracy']:.2%}</p></div>""", unsafe_allow_html=True)
     
     with col2:
-        if len(perf_df) > 0:
-            fastest_model = perf_df.loc[perf_df['Training Time (s)'].idxmin()]
-            st.markdown(f"""<div class="metric-container"><h4>⚡ Fastest Model</h4><h3>{fastest_model['Model']}</h3><p>Time: {fastest_model['Training Time (s)']:.2f}s</p></div>""", unsafe_allow_html=True)
+        avg_acc = perf_df['Accuracy'].mean()
+        st.markdown(f"""<div class="metric-container"><h4>📊 Average Accuracy</h4><h2>{avg_acc:.2%}</h2></div>""", unsafe_allow_html=True)
     
     with col3:
-        if len(perf_df) > 0:
-            most_stable = perf_df.loc[perf_df['CV Std'].idxmin()]
-            st.markdown(f"""<div class="metric-container"><h4>🎯 Most Stable</h4><h3>{most_stable['Model']}</h3><p>CV Std: {most_stable['CV Std']:.4f}</p></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="metric-container"><h4>🎯 Models</h4><h2>{len(perf_df)}</h2></div>""", unsafe_allow_html=True)
     
-    st.markdown("##### 📊 Detailed Performance Metrics")
-    st.dataframe(perf_df, use_container_width=True)
+    st.dataframe(perf_df.style.format({
+        'Accuracy': '{:.2%}',
+        'Precision': '{:.2%}',
+        'Recall': '{:.2%}',
+        'F1 Score': '{:.4f}',
+        'RMSE': '{:.4f}',
+        'MAE': '{:.4f}'
+    }), use_container_width=True)
     
-    st.markdown("#### 📊 Performance Visualizations")
+    # Multiple comparison charts
+    col1, col2 = st.columns(2)
     
-    if len(perf_df) > 0:
-        fig_r2 = px.bar(
-            perf_df.sort_values('R² Score'),
-            x='R² Score',
+    with col1:
+        fig_acc = px.bar(
+            perf_df.sort_values('Accuracy'),
+            x='Accuracy',
             y='Model',
             orientation='h',
-            title='🎯 R² Score Comparison',
-            color='R² Score',
+            title='🎯 Model Accuracy Comparison',
+            color='Accuracy',
             color_continuous_scale='Viridis'
         )
-        fig_r2.update_layout(height=500)
-        st.plotly_chart(fig_r2, use_container_width=True)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_rmse = px.bar(
-                perf_df.sort_values('RMSE'),
-                x='RMSE',
-                y='Model',
-                orientation='h',
-                title='📉 RMSE Comparison (Lower is Better)',
-                color='RMSE',
-                color_continuous_scale='Reds'
-            )
-            fig_rmse.update_layout(height=400)
-            st.plotly_chart(fig_rmse, use_container_width=True)
-        
-        with col2:
-            fig_time = px.bar(
-                perf_df.sort_values('Training Time (s)'),
-                x='Training Time (s)',
-                y='Model',
-                orientation='h',
-                title='⏱️ Training Time Comparison',
-                color='Training Time (s)',
-                color_continuous_scale='Blues'
-            )
-            fig_time.update_layout(height=400)
-            st.plotly_chart(fig_time, use_container_width=True)
-        
-        st.markdown("#### 🔄 Cross-Validation Analysis")
-        
-        cv_fig = px.scatter(
+        st.plotly_chart(fig_acc, use_container_width=True)
+    
+    with col2:
+        fig_f1 = px.bar(
+            perf_df.sort_values('F1 Score'),
+            x='F1 Score',
+            y='Model',
+            orientation='h',
+            title='📊 F1 Score Comparison',
+            color='F1 Score',
+            color_continuous_scale='Plasma'
+        )
+        st.plotly_chart(fig_f1, use_container_width=True)
+    
+    # Additional metrics visualization
+    st.markdown("#### 📉 Detailed Metrics Comparison")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Precision vs Recall scatter
+        fig_scatter = px.scatter(
             perf_df,
-            x='CV Mean',
-            y='CV Std',
-            size='R² Score',
-            color='Model',
-            title='🎯 Cross-Validation Performance (Mean vs Std)',
-            hover_data=['R² Score', 'RMSE']
+            x='Precision',
+            y='Recall',
+            size='F1 Score',
+            color='Accuracy',
+            hover_data=['Model'],
+            title='🎯 Precision vs Recall',
+            color_continuous_scale='Viridis'
         )
-        cv_fig.update_layout(height=400)
-        st.plotly_chart(cv_fig, use_container_width=True)
-        
-        st.markdown("#### 🔍 Prediction Analysis")
-        
-        selected_model = st.selectbox(
-            "Choose model for detailed analysis:",
-            list(results.keys()),
-            index=0
+        st.plotly_chart(fig_scatter, use_container_width=True)
+    
+    with col2:
+        # Error metrics
+        fig_error = go.Figure()
+        fig_error.add_trace(go.Bar(
+            name='RMSE',
+            x=perf_df['Model'],
+            y=perf_df['RMSE'],
+            marker_color='indianred'
+        ))
+        fig_error.add_trace(go.Bar(
+            name='MAE',
+            x=perf_df['Model'],
+            y=perf_df['MAE'],
+            marker_color='lightsalmon'
+        ))
+        fig_error.update_layout(
+            title='📉 Error Metrics Comparison',
+            barmode='group',
+            xaxis_tickangle=-45
         )
-        
-        if selected_model:
-            model_data = results[selected_model]
-            y_test = st.session_state.y_test
-            y_pred = model_data['Predictions']
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig_scatter = px.scatter(
-                    x=y_test,
-                    y=y_pred,
-                    title=f'🎯 {selected_model}: Predictions vs Actual',
-                    labels={'x': 'Actual Values', 'y': 'Predicted Values'},
-                    color=np.abs(y_test - y_pred),
-                    color_continuous_scale='RdYlGn_r'
-                )
-                
-                min_val = min(y_test.min(), y_pred.min())
-                max_val = max(y_test.max(), y_pred.max())
-                fig_scatter.add_trace(
-                    go.Scatter(
-                        x=[min_val, max_val],
-                        y=[min_val, max_val],
-                        mode='lines',
-                        name='Perfect Prediction',
-                        line=dict(color='red', dash='dash')
-                    )
-                )
-                
-                st.plotly_chart(fig_scatter, use_container_width=True)
-            
-            with col2:
-                residuals = y_test - y_pred
-                fig_residuals = px.scatter(
-                    x=y_pred,
-                    y=residuals,
-                    title=f'📊 {selected_model}: Residuals Plot',
-                    labels={'x': 'Predicted Values', 'y': 'Residuals'},
-                    color=np.abs(residuals),
-                    color_continuous_scale='Reds'
-                )
-                
-                fig_residuals.add_hline(y=0, line_dash="dash", line_color="red")
-                
-                st.plotly_chart(fig_residuals, use_container_width=True)
-        
-        st.markdown("#### 🎯 Feature Importance Analysis")
-        
-        tree_models = ['🌳 Random Forest', '🚀 XGBoost', '💡 LightGBM', '🎯 CatBoost', '⚡ Gradient Boosting', '🌿 Decision Tree']
-        available_tree_models = [m for m in tree_models if m in results]
-        
-        if available_tree_models:
-            importance_model = st.selectbox(
-                "Select model for feature importance:",
-                available_tree_models
-            )
-            
-            if importance_model:
-                model = results[importance_model]['Model']
-                
-                if hasattr(model, 'feature_importances_') and len(model.feature_importances_) <= len(st.session_state.X_test.columns):
-                    if len(model.feature_importances_) == len(st.session_state.X_test.columns):
-                        importances = model.feature_importances_
-                        feature_names_for_importance = st.session_state.X_test.columns
-                    else:
-                        importances = model.feature_importances_
-                        feature_names_for_importance = [f'PC_{i+1}' for i in range(len(importances))]
-                else:
-                    importances = np.random.rand(len(st.session_state.X_test.columns))
-                    feature_names_for_importance = st.session_state.X_test.columns
+        st.plotly_chart(fig_error, use_container_width=True)
 
-                importance_df = pd.DataFrame({
-                    'Feature': feature_names_for_importance,
-                    'Importance': importances
-                }).sort_values('Importance', ascending=False)
-                
-                fig_importance = px.bar(
-                    importance_df.head(15),
-                    x='Importance',
-                    y='Feature',
-                    orientation='h',
-                    title=f'🎯 {importance_model}: Top 15 Feature Importances',
-                    color='Importance',
-                    color_continuous_scale='Viridis'
-                )
-                fig_importance.update_layout(height=600)
-                st.plotly_chart(fig_importance, use_container_width=True)
-                
-                st.markdown("##### 🏆 Top 10 Most Important Features")
-                st.dataframe(importance_df.head(10), use_container_width=True)
-        
-        st.markdown("#### 💾 Export Results")
-        
-        if st.button("📥 Download Results", type="secondary", key="download_results"):
-            results_json = {}
-            for model_name, metrics in results.items():
-                results_json[model_name] = {
-                    'MSE': float(metrics['MSE']),
-                    'RMSE': float(metrics['RMSE']),
-                    'MAE': float(metrics['MAE']),
-                    'R²': float(metrics['R²']),
-                    'CV_Mean': float(metrics['CV_Mean']),
-                    'CV_Std': float(metrics['CV_Std']),
-                    'Training_Time': float(metrics['Training_Time'])
-                }
-            
-            st.download_button(
-                label="Download model_results.json",
-                data=json.dumps(results_json, indent=4),
-                file_name="model_results.json",
-                mime="application/json"
-            )
+# ==================== SIDEBAR STATUS ====================
 
-# Sidebar information
 st.sidebar.markdown("---")
 
 if st.session_state.dataset_loaded:
-    st.sidebar.success("✅ Datasets Loaded")
+    st.sidebar.success("✅ Dataset Loaded")
 else:
-    st.sidebar.error("❌ Datasets Not Loaded")
+    st.sidebar.error("❌ Dataset Not Loaded")
 
 if st.session_state.models_trained:
-    st.sidebar.success("✅ Models Trained")
-    st.sidebar.info(f"🎯 {len(st.session_state.model_results)} models ready")
+    st.sidebar.success("✅ Tabular Models Loaded")
+    st.sidebar.info(f"🎯 {len(st.session_state.model_results)} models")
 else:
-    st.sidebar.error("❌ Models Not Trained")
+    st.sidebar.error("❌ Tabular Models Not Loaded")
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎯 Quick Stats")
-if st.session_state.dataset_loaded:
-    st.sidebar.metric("📋 Total Records", len(st.session_state.df_flood))
-    st.sidebar.metric("🛰️ Satellite Images", len(st.session_state.sat_files))
+if st.session_state.models_loaded:
+    st.sidebar.success("✅ DL Models Loaded")
+else:
+    st.sidebar.error("❌ DL Models Not Loaded")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ About")
 st.sidebar.info("""
-🌊 **FloodSentinel** combines:
-- ⚙️ 12 state-of-the-art ML algorithms
-- 🛰️ Deep learning for satellite imagery
-- 📊 Real-time risk assessment
-- 🎯 Interactive visualizations
-- 📈 Comprehensive performance analysis
+🌊 **FloodSentinel**
+- 12 Pre-trained ML models
+- Context-aware detection
+- Fire/vegetation filtering
+- Ensemble predictions
 """)
+
+# ==================== FOOTER ====================
 
 st.markdown("---")
 st.markdown("""
-    <style>
-        .footer {
-            position: relative;
-            left: 0;
-            bottom: 0;
-            width: 100%;
-            background-color: transparent;
-            color: #888;
-            text-align: center;
-            padding: 10px;
-            font-size: 0.9em;
-            transition: background-color 0.3s, color 0.3s;
-        }
-        .footer:hover {
-            background-color: #f0f2f6;
-            color: #2a5298;
-        }
-    </style>
     <div class="footer">
-        <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>Project: FloodSentinel</p>
+        <p>Crafted with ❤️ by Shreyas, Chinmay and Kaivalya.<br>
+        Project: FloodSentinel</p>
     </div>
 """, unsafe_allow_html=True)
