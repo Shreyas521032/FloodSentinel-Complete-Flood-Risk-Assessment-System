@@ -524,8 +524,14 @@ def predict_with_ensemble(image, models_dict):
                     st.warning(f"⚠️ Error with {model_name}: {str(e)}")
     
     # Try to use ensemble models if CNN features are available
-    if len(cnn_features) == 3:  # All 4 CNNs loaded (including ViT)
-        cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
+    if len(cnn_features) >= 3:  # At least 3 CNNs loaded
+        if len(cnn_features) == 3:
+            # Pad with average to match expected 4 features for ensemble models
+            avg_feature = np.mean(cnn_features)
+            cnn_features_padded = cnn_features + [avg_feature]
+            cnn_feature_vector = np.array(cnn_features_padded).reshape(1, -1)
+        else:
+            cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
         
         # Try meta models
         for meta_name in ['meta_model', 'xgb_meta_model']:
@@ -534,7 +540,7 @@ def predict_with_ensemble(image, models_dict):
                     meta_pred = models_dict[meta_name].predict_proba(cnn_feature_vector)[0, 1]
                     predictions[f"{meta_name}_ensemble"] = float(meta_pred)
                 except Exception as e:
-                    pass
+                    st.warning(f"⚠️ {meta_name} failed: {str(e)}")
         
         # Try stacking models
         for stack_name in ['cnn_stacking_logistic', 'cnn_stacking_ensemble_xgb_model']:
@@ -546,7 +552,7 @@ def predict_with_ensemble(image, models_dict):
                         stack_pred = models_dict[stack_name].predict(cnn_feature_vector)[0]
                     predictions[f"{stack_name}_ensemble"] = float(stack_pred)
                 except Exception as e:
-                    pass
+                    st.warning(f"⚠️ {stack_name} failed: {str(e)}")
     
     # Calculate ensemble prediction
     if predictions:
