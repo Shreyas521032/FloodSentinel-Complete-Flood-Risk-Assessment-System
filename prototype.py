@@ -127,7 +127,7 @@ if 'models_loaded' not in st.session_state:
 if 'scaler' not in st.session_state:
     st.session_state.scaler = None
 
-# ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
+# ==================== KAGGLE MODEL DOWNLOAD FUNCTIONS ====================
 
 def download_models_from_kaggle_kernel(kernel_slug, output_dir="pretrained_models"):
     """
@@ -1623,9 +1623,6 @@ elif page == "🖼️ Image Flood Detection":
                         st.markdown("##### 📊 All Model Predictions")
                         
                         # Separate CNN and Ensemble predictions
-                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
-                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
-                        
                         if cnn_preds:
                             st.markdown("**🤖 CNN Models:**")
                             for model_name, pred in cnn_preds.items():
@@ -1639,7 +1636,6 @@ elif page == "🖼️ Image Flood Detection":
                         
                         if not cnn_preds and not ensemble_preds:
                             st.warning("No model predictions available")
-                            st.info(f"Total models available: {len(predictions)}")
                     
                     with col2:
                         # Gauge chart
@@ -1664,18 +1660,12 @@ elif page == "🖼️ Image Flood Detection":
                     st.markdown("#### 📊 Model Comparison")
                     
                     if len(predictions) > 1:
-                        # Separate predictions for better visualization
-                        cnn_preds = {k: v for k, v in predictions.items() if k in ['resnet', 'densenet', 'vit', 'efficientnet']}
-                        ensemble_preds = {k: v for k, v in predictions.items() if k not in ['resnet', 'densenet', 'vit', 'efficientnet']}
-                        
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            # Combined bar chart
                             model_names = list(predictions.keys())
                             model_preds = [predictions[m] * 100 for m in model_names]
                             
-                            # Create color coding for different model types
                             colors = []
                             for name in model_names:
                                 if name in ['resnet', 'densenet', 'vit', 'efficientnet']:
@@ -1698,13 +1688,12 @@ elif page == "🖼️ Image Flood Detection":
                             st.plotly_chart(fig_compare, use_container_width=True)
                         
                         with col2:
-                            # Radar chart for model agreement
                             if len(predictions) >= 3:
                                 fig_radar = go.Figure()
                                 
                                 fig_radar.add_trace(go.Scatterpolar(
                                     r=model_preds,
-                                    theta=[name[:15] for name in model_names],  # Truncate long names
+                                    theta=[name[:15] for name in model_names],
                                     fill='toself',
                                     name='Predictions',
                                     line_color='rgb(102, 126, 234)'
@@ -1718,54 +1707,6 @@ elif page == "🖼️ Image Flood Detection":
                                     showlegend=False
                                 )
                                 st.plotly_chart(fig_radar, use_container_width=True)
-                            else:
-                                # Show box plot if fewer models
-                                fig_box = go.Figure()
-                                fig_box.add_trace(go.Box(
-                                    y=model_preds,
-                                    name='Predictions',
-                                    marker_color='rgb(102, 126, 234)',
-                                    boxmean='sd'
-                                ))
-                                fig_box.update_layout(
-                                    title="📊 Prediction Distribution",
-                                    yaxis_title="Flood Probability (%)"
-                                )
-                                st.plotly_chart(fig_box, use_container_width=True)
-                        
-                        # Detailed breakdown
-                        st.markdown("##### 📈 Prediction Statistics")
-                        stat_col1, stat_col2, stat_col3, stat_col4, stat_col5 = st.columns(5)
-                        
-                        with stat_col1:
-                            st.metric("Mean", f"{np.mean(model_preds):.1f}%")
-                        with stat_col2:
-                            st.metric("Std Dev", f"{np.std(model_preds):.1f}%")
-                        with stat_col3:
-                            st.metric("Min", f"{np.min(model_preds):.1f}%")
-                        with stat_col4:
-                            st.metric("Max", f"{np.max(model_preds):.1f}%")
-                        with stat_col5:
-                            st.metric("Range", f"{np.ptp(model_preds):.1f}%")
-                        
-                        # Show model agreement analysis
-                        std_dev = np.std(model_preds)
-                        if std_dev < 10:
-                            st.success(f"✅ **High Agreement** - Models show strong consensus (σ={std_dev:.1f}%)")
-                        elif std_dev < 20:
-                            st.info(f"ℹ️ **Moderate Agreement** - Models show reasonable consensus (σ={std_dev:.1f}%)")
-                        else:
-                            st.warning(f"⚠️ **Low Agreement** - Models show significant variation (σ={std_dev:.1f}%)")
-                        
-                        # Detailed predictions table
-                        with st.expander("📋 View Detailed Predictions Table"):
-                            pred_table = pd.DataFrame({
-                                'Model': model_names,
-                                'Type': colors,
-                                'Probability': [f"{p:.2f}%" for p in model_preds],
-                                'Deviation from Mean': [f"{p - np.mean(model_preds):.2f}%" for p in model_preds]
-                            })
-                            st.dataframe(pred_table, use_container_width=True)
                     
                     st.info(f"💡 Analysis: {context['reason']}")
                     
