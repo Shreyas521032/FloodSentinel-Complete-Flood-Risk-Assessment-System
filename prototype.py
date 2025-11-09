@@ -129,6 +129,164 @@ if 'scaler' not in st.session_state:
 
 # ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
 
+def download_models_from_kaggle_kernel(kernel_slug, output_dir="pretrained_models"):
+    """
+    Download model outputs from a Kaggle kernel
+    
+    Args:
+        kernel_slug: Kaggle kernel slug (e.g., 'username/kernel-name')
+        output_dir: Directory to save downloaded models
+    """
+    import subprocess
+    import os
+    
+    try:
+        # Create output directory
+        os.makedirs(output_dir, exist_ok=True)
+        
+        st.info(f"📥 Downloading models from Kaggle kernel: {kernel_slug}")
+        st.info(f"📂 Saving to: {os.path.abspath(output_dir)}")
+        
+        # Run kaggle command
+        cmd = f"kaggle kernels output {kernel_slug} -p {output_dir}"
+        
+        st.code(cmd, language="bash")
+        
+        with st.spinner("⏳ Downloading... This may take a few minutes..."):
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+        
+        if result.returncode == 0:
+            st.success("✅ Download completed successfully!")
+            
+            # List downloaded files
+            files = os.listdir(output_dir)
+            if files:
+                st.success(f"✅ Downloaded {len(files)} files:")
+                
+                file_info = []
+                for file in files:
+                    filepath = os.path.join(output_dir, file)
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    file_info.append({
+                        'File': file,
+                        'Size (MB)': f"{size_mb:.2f}",
+                        'Type': '🤖 CNN Model' if any(x in file for x in ['resnet', 'densenet', 'vit', 'efficientnet']) else '🔗 Ensemble'
+                    })
+                
+                st.dataframe(pd.DataFrame(file_info), use_container_width=True)
+            else:
+                st.warning("⚠️ No files found in output directory")
+            
+            return True, output_dir
+        else:
+            st.error(f"❌ Download failed!")
+            st.error(f"Error: {result.stderr}")
+            
+            # Check for common issues
+            if "401" in result.stderr or "authentication" in result.stderr.lower():
+                st.warning("🔑 **Authentication Issue**")
+                st.markdown("""
+                Please ensure you have configured Kaggle API credentials:
+                
+                1. Go to Kaggle Account Settings: https://www.kaggle.com/settings
+                2. Click "Create New API Token" to download `kaggle.json`
+                3. Place it in `~/.kaggle/kaggle.json` (Linux/Mac) or `C:\\Users\\<Username>\\.kaggle\\kaggle.json` (Windows)
+                4. Run: `chmod 600 ~/.kaggle/kaggle.json` (Linux/Mac only)
+                """)
+            elif "404" in result.stderr or "not found" in result.stderr.lower():
+                st.warning("🔍 **Kernel Not Found**")
+                st.info(f"Please verify the kernel slug: `{kernel_slug}`")
+                st.info("Format should be: `username/kernel-name`")
+            
+            return False, None
+            
+    except FileNotFoundError:
+        st.error("❌ Kaggle CLI not found!")
+        st.markdown("""
+        **Please install Kaggle CLI:**
+        
+        ```bash
+        pip install kaggle
+        ```
+        
+        Then configure your API credentials as described above.
+        """)
+        return False, None
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        return False, None
+
+def download_models_from_kaggle_dataset(dataset_slug, output_dir="pretrained_models"):
+    """
+    Download models from a Kaggle dataset
+    
+    Args:
+        dataset_slug: Kaggle dataset slug (e.g., 'username/dataset-name')
+        output_dir: Directory to save downloaded models
+    """
+    import subprocess
+    import os
+    
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        
+        st.info(f"📥 Downloading from Kaggle dataset: {dataset_slug}")
+        st.info(f"📂 Saving to: {os.path.abspath(output_dir)}")
+        
+        cmd = f"kaggle datasets download -d {dataset_slug} -p {output_dir} --unzip"
+        
+        st.code(cmd, language="bash")
+        
+        with st.spinner("⏳ Downloading... This may take several minutes..."):
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True
+            )
+        
+        if result.returncode == 0:
+            st.success("✅ Download completed successfully!")
+            
+            files = []
+            for root, dirs, filenames in os.walk(output_dir):
+                for file in filenames:
+                    files.append(os.path.join(root, file))
+            
+            if files:
+                st.success(f"✅ Downloaded {len(files)} files")
+                
+                file_info = []
+                for filepath in files[:20]:  # Show first 20 files
+                    size_mb = os.path.getsize(filepath) / (1024 * 1024)
+                    file_info.append({
+                        'File': os.path.basename(filepath),
+                        'Path': filepath,
+                        'Size (MB)': f"{size_mb:.2f}"
+                    })
+                
+                st.dataframe(pd.DataFrame(file_info), use_container_width=True)
+                
+                if len(files) > 20:
+                    st.info(f"... and {len(files) - 20} more files")
+            
+            return True, output_dir
+        else:
+            st.error(f"❌ Download failed!")
+            st.error(f"Error: {result.stderr}")
+            return False, None
+            
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+        return False, None
+
+# ==================== DEEP LEARNING MODEL LOADING FUNCTIONS ====================
+
 def try_decompress_and_load(compressed_path, device):
     """
     Try to decompress .gz file and load it directly as raw weights
