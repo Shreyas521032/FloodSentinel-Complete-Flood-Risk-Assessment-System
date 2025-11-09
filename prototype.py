@@ -519,7 +519,7 @@ def predict_with_ensemble(image, models_dict):
     
     # Get predictions from each CNN model
     with torch.no_grad():
-        for model_name in ['resnet', 'densenet', 'efficientnet']:
+        for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
             if model_name in models_dict:
                 try:
                     model = models_dict[model_name]
@@ -532,7 +532,7 @@ def predict_with_ensemble(image, models_dict):
                     st.warning(f"⚠️ Error with {model_name}: {str(e)}")
     
     # Try to use ensemble models if CNN features are available
-    if len(cnn_features) == 3:  # All 3 CNNs loaded
+    if len(cnn_features) == 4:  # All 3 CNNs loaded
         cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
         
         # Try meta models
