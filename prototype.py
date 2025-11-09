@@ -524,7 +524,7 @@ def predict_with_ensemble(image, models_dict):
                     st.warning(f"⚠️ Error with {model_name}: {str(e)}")
     
     # Try to use ensemble models if CNN features are available
-    if len(cnn_features) == 2:  # All 4 CNNs loaded (including ViT)
+    if len(cnn_features) == 3:  # All 4 CNNs loaded (including ViT)
         cnn_feature_vector = np.array(cnn_features).reshape(1, -1)
         
         # Try meta models
