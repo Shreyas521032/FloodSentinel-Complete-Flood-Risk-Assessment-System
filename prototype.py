@@ -287,7 +287,7 @@ def load_pretrained_cnn_models(models_dir="cnn_models"):
     # Google Drive file IDs for model checkpoints
     file_ids = {
         "resnet_model_checkpoint.pth": "1Dj5K1YyVl3mczopiEc7ZixVgPIaQRyku",
-        "resnet_model_checkpoint (1).pth": "YOUR_FILE_ID_HERE",
+        "resnet_model_checkpoint (1).pth": "1Dj5K1YyVl3mczopiEc7ZixVgPIaQRyku",
         "densenet_model_checkpoint.pth": "1GzsLM7t3-1IiRv9qZJLTwr37lgq3goDh",
         "densenet_model_checkpoint (1).pth": "YOUR_FILE_ID_HERE",
         "efficientnet_model_checkpoint.pth": "YOUR_FILE_ID_HERE",
@@ -605,6 +605,476 @@ def extract_water_mask(image):
         return Image.fromarray(water_mask_rgb)
     except Exception as e:
         return image
+
+def load_evaluation_dataset():
+    """
+    Load or create a labeled evaluation dataset for CNN models
+    This should be a dataset with images and their true flood/non-flood labels
+    """
+    # Option 1: Load from a saved evaluation set
+    # eval_data = pd.read_csv('evaluation_data.csv')
+    
+    # Option 2: Create synthetic evaluation data (for demonstration)
+    # In production, replace this with real labeled test data
+    eval_images = []
+    eval_labels = []
+    
+    # You would load your actual test images here
+    # For now, we'll return empty lists - populate with your test data
+    
+    return eval_images, eval_labels
+
+# ==================== CNN MODEL EVALUATION ====================
+
+def evaluate_cnn_models(models_dict, test_images, test_labels):
+    """
+    Evaluate pre-trained CNN models on test dataset
+    
+    Args:
+        models_dict: Dictionary of loaded CNN models
+        test_images: List of test images
+        test_labels: List of ground truth labels (0 or 1)
+    
+    Returns:
+        Dictionary containing evaluation metrics for each model
+    """
+    import torch
+    from PIL import Image
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    test_transform = get_transforms()
+    
+    evaluation_results = {}
+    
+    for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+        if model_name not in models_dict:
+            continue
+        
+        st.info(f"🔄 Evaluating {model_name.upper()}...")
+        
+        model = models_dict[model_name]
+        model.eval()
+        
+        predictions = []
+        probabilities = []
+        
+        with torch.no_grad():
+            for img, label in zip(test_images, test_labels):
+                # Preprocess image
+                if isinstance(img, str):
+                    img = Image.open(img)
+                
+                img_tensor = test_transform(img).unsqueeze(0).to(device)
+                
+                # Get prediction
+                output = model(img_tensor)
+                prob = torch.softmax(output, dim=1)[0, 1].cpu().numpy()
+                pred = 1 if prob >= 0.5 else 0
+                
+                predictions.append(pred)
+                probabilities.append(prob)
+        
+        # Calculate metrics
+        accuracy = accuracy_score(test_labels, predictions)
+        precision = precision_score(test_labels, predictions, zero_division=0)
+        recall = recall_score(test_labels, predictions, zero_division=0)
+        f1 = f1_score(test_labels, predictions, zero_division=0)
+        conf_matrix = confusion_matrix(test_labels, predictions)
+        
+        evaluation_results[model_name] = {
+            'Model': model_name.upper(),
+            'Accuracy': accuracy,
+            'Precision': precision,
+            'Recall': recall,
+            'F1_Score': f1,
+            'Predictions': predictions,
+            'Probabilities': probabilities,
+            'Confusion_Matrix': conf_matrix
+        }
+        
+        st.success(f"✅ {model_name.upper()}: Accuracy={accuracy:.2%}, F1={f1:.4f}")
+    
+    return evaluation_results
+
+# ==================== ENSEMBLE EVALUATION ====================
+
+def evaluate_ensemble_models(models_dict, test_images, test_labels):
+    """
+    Evaluate ensemble models on test dataset
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # First get CNN features for all test images
+    cnn_features_list = []
+    
+    st.info("🔄 Extracting CNN features for ensemble evaluation...")
+    
+    for img in test_images:
+        if isinstance(img, str):
+            img = Image.open(img)
+        
+        cnn_features = []
+        test_transform = get_transforms()
+        img_tensor = test_transform(img).unsqueeze(0).to(device)
+        
+        with torch.no_grad():
+            for model_name in ['resnet', 'densenet', 'efficientnet', 'vit']:
+                if model_name in models_dict:
+                    model = models_dict[model_name]
+                    model.eval()
+                    output = model(img_tensor)
+                    prob = torch.softmax(output, dim=1)[0, 1].cpu().numpy()
+                    cnn_features.append(prob)
+        
+        cnn_features_list.append(cnn_features)
+    
+    cnn_features_array = np.array(cnn_features_list)
+    
+    # Evaluate ensemble models
+    ensemble_results = {}
+    
+    ensemble_model_names = [k for k in models_dict.keys() 
+                           if k not in ['resnet', 'densenet', 'efficientnet', 'vit']]
+    
+    for ensemble_name in ensemble_model_names:
+        model = models_dict[ensemble_name]
+        
+        try:
+            st.info(f"🔄 Evaluating {ensemble_name}...")
+            
+            # Get predictions
+            if hasattr(model, 'predict_proba'):
+                probs = model.predict_proba(cnn_features_array)[:, 1]
+                predictions = (probs >= 0.5).astype(int)
+            else:
+                predictions = model.predict(cnn_features_array)
+                probs = predictions
+            
+            # Calculate metrics
+            accuracy = accuracy_score(test_labels, predictions)
+            precision = precision_score(test_labels, predictions, zero_division=0)
+            recall = recall_score(test_labels, predictions, zero_division=0)
+            f1 = f1_score(test_labels, predictions, zero_division=0)
+            conf_matrix = confusion_matrix(test_labels, predictions)
+            
+            ensemble_results[ensemble_name] = {
+                'Model': ensemble_name.replace('_', ' ').title(),
+                'Accuracy': accuracy,
+                'Precision': precision,
+                'Recall': recall,
+                'F1_Score': f1,
+                'Predictions': predictions,
+                'Probabilities': probs,
+                'Confusion_Matrix': conf_matrix
+            }
+            
+            st.success(f"✅ {ensemble_name}: Accuracy={accuracy:.2%}, F1={f1:.4f}")
+            
+        except Exception as e:
+            st.warning(f"⚠️ Could not evaluate {ensemble_name}: {str(e)}")
+    
+    return ensemble_results
+
+# ==================== VISUALIZATION FUNCTIONS ====================
+
+def plot_model_comparison(cnn_results, ensemble_results=None):
+    """Create comprehensive comparison visualizations"""
+    
+    # Combine all results
+    all_results = {**cnn_results}
+    if ensemble_results:
+        all_results.update(ensemble_results)
+    
+    # Create DataFrame for plotting
+    metrics_data = []
+    for model_name, metrics in all_results.items():
+        metrics_data.append({
+            'Model': metrics['Model'],
+            'Accuracy': metrics['Accuracy'],
+            'Precision': metrics['Precision'],
+            'Recall': metrics['Recall'],
+            'F1 Score': metrics['F1_Score'],
+            'Type': 'CNN' if model_name in ['resnet', 'densenet', 'efficientnet', 'vit'] else 'Ensemble'
+        })
+    
+    df_metrics = pd.DataFrame(metrics_data)
+    
+    # 1. Overall Performance Bar Chart
+    st.markdown("#### 📊 Overall Model Performance")
+    
+    fig_comparison = go.Figure()
+    
+    metrics_to_plot = ['Accuracy', 'Precision', 'Recall', 'F1 Score']
+    colors = ['#667eea', '#fa709a', '#00f2fe', '#fee140']
+    
+    for i, metric in enumerate(metrics_to_plot):
+        fig_comparison.add_trace(go.Bar(
+            name=metric,
+            x=df_metrics['Model'],
+            y=df_metrics[metric],
+            marker_color=colors[i]
+        ))
+    
+    fig_comparison.update_layout(
+        barmode='group',
+        title='🎯 Model Performance Comparison - All Metrics',
+        xaxis_title='Model',
+        yaxis_title='Score',
+        height=500,
+        hovermode='x unified'
+    )
+    
+    st.plotly_chart(fig_comparison, use_container_width=True)
+    
+    # 2. Separate CNN and Ensemble Performance
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("##### 🤖 CNN Models Performance")
+        cnn_df = df_metrics[df_metrics['Type'] == 'CNN']
+        
+        if not cnn_df.empty:
+            fig_cnn = px.bar(
+                cnn_df,
+                x='F1 Score',
+                y='Model',
+                orientation='h',
+                color='Accuracy',
+                title='CNN Models - F1 Score & Accuracy',
+                color_continuous_scale='Viridis'
+            )
+            fig_cnn.update_layout(height=300)
+            st.plotly_chart(fig_cnn, use_container_width=True)
+    
+    with col2:
+        st.markdown("##### 🔗 Ensemble Models Performance")
+        ensemble_df = df_metrics[df_metrics['Type'] == 'Ensemble']
+        
+        if not ensemble_df.empty:
+            fig_ensemble = px.bar(
+                ensemble_df,
+                x='F1 Score',
+                y='Model',
+                orientation='h',
+                color='Accuracy',
+                title='Ensemble Models - F1 Score & Accuracy',
+                color_continuous_scale='Plasma'
+            )
+            fig_ensemble.update_layout(height=300)
+            st.plotly_chart(fig_ensemble, use_container_width=True)
+    
+    # 3. Precision-Recall Trade-off
+    st.markdown("#### 🎯 Precision-Recall Analysis")
+    
+    fig_pr = px.scatter(
+        df_metrics,
+        x='Precision',
+        y='Recall',
+        size='F1 Score',
+        color='Type',
+        hover_name='Model',
+        title='Precision vs Recall Trade-off',
+        color_discrete_map={'CNN': '#667eea', 'Ensemble': '#fa709a'}
+    )
+    fig_pr.add_shape(
+        type='line',
+        x0=0, y0=0, x1=1, y1=1,
+        line=dict(color='gray', dash='dash')
+    )
+    fig_pr.update_layout(height=400)
+    st.plotly_chart(fig_pr, use_container_width=True)
+    
+    # 4. Radar Chart for Top 5 Models
+    st.markdown("#### 🕸️ Multi-Metric Radar Chart (Top 5 Models)")
+    
+    top_5 = df_metrics.nlargest(5, 'F1 Score')
+    
+    fig_radar = go.Figure()
+    
+    for _, row in top_5.iterrows():
+        fig_radar.add_trace(go.Scatterpolar(
+            r=[row['Accuracy'], row['Precision'], row['Recall'], row['F1 Score']],
+            theta=['Accuracy', 'Precision', 'Recall', 'F1 Score'],
+            fill='toself',
+            name=row['Model']
+        ))
+    
+    fig_radar.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        showlegend=True,
+        title='Top 5 Models - Multi-Metric Performance',
+        height=500
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)
+    
+    # 5. Detailed Metrics Table
+    st.markdown("#### 📋 Detailed Metrics Table")
+    
+    styled_df = df_metrics.style.format({
+        'Accuracy': '{:.2%}',
+        'Precision': '{:.2%}',
+        'Recall': '{:.2%}',
+        'F1 Score': '{:.4f}'
+    }).background_gradient(subset=['Accuracy', 'Precision', 'Recall', 'F1 Score'], cmap='RdYlGn')
+    
+    st.dataframe(styled_df, use_container_width=True)
+    
+    return df_metrics
+
+def plot_confusion_matrices(results):
+    """Plot confusion matrices for all models"""
+    
+    st.markdown("#### 🔲 Confusion Matrices")
+    
+    n_models = len(results)
+    n_cols = min(3, n_models)
+    n_rows = (n_models + n_cols - 1) // n_cols
+    
+    fig = make_subplots(
+        rows=n_rows,
+        cols=n_cols,
+        subplot_titles=[metrics['Model'] for metrics in results.values()],
+        specs=[[{'type': 'heatmap'} for _ in range(n_cols)] for _ in range(n_rows)]
+    )
+    
+    for idx, (model_name, metrics) in enumerate(results.items()):
+        row = idx // n_cols + 1
+        col = idx % n_cols + 1
+        
+        cm = metrics['Confusion_Matrix']
+        
+        # Normalize confusion matrix
+        cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        
+        fig.add_trace(
+            go.Heatmap(
+                z=cm_normalized,
+                x=['Predicted No Flood', 'Predicted Flood'],
+                y=['Actual No Flood', 'Actual Flood'],
+                colorscale='RdYlGn',
+                text=cm,
+                texttemplate='%{text}',
+                showscale=(idx == 0)
+            ),
+            row=row,
+            col=col
+        )
+    
+    fig.update_layout(
+        title_text='Confusion Matrices for All Models',
+        height=300 * n_rows,
+        showlegend=False
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def display_best_model_analysis(df_metrics):
+    """Highlight the best performing model"""
+    
+    st.markdown("#### 🏆 Best Model Analysis")
+    
+    best_model = df_metrics.loc[df_metrics['F1 Score'].idxmax()]
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4>🥇 Best Model</h4>
+            <h3>{best_model['Model']}</h3>
+            <p>Type: {best_model['Type']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4>🎯 Accuracy</h4>
+            <h2>{best_model['Accuracy']:.2%}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4>📊 Precision</h4>
+            <h2>{best_model['Precision']:.2%}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4>🎖️ F1 Score</h4>
+            <h2>{best_model['F1 Score']:.4f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ==================== MAIN EVALUATION FUNCTION ====================
+
+def run_comprehensive_evaluation(models_dict, test_images=None, test_labels=None):
+    """
+    Main function to run comprehensive evaluation of all models
+    
+    Args:
+        models_dict: Dictionary containing all loaded models (CNN + Ensemble)
+        test_images: List of test images (if None, will attempt to load)
+        test_labels: List of ground truth labels (if None, will attempt to load)
+    """
+    
+    st.markdown("### 📊 Comprehensive Model Evaluation")
+    
+    # Load test data if not provided
+    if test_images is None or test_labels is None:
+        st.warning("⚠️ No test dataset provided. Please provide test images and labels.")
+        st.info("""
+        To run evaluation, you need:
+        1. A set of labeled test images
+        2. Ground truth labels (0 = No Flood, 1 = Flood)
+        
+        Example format:
+        ```python
+        test_images = ['path/to/image1.jpg', 'path/to/image2.jpg', ...]
+        test_labels = [0, 1, 0, 1, ...]  # Ground truth
+        ```
+        """)
+        return None
+    
+    st.info(f"📊 Evaluating on {len(test_labels)} test images...")
+    
+    # Evaluate CNN models
+    with st.spinner("🔄 Evaluating CNN models..."):
+        cnn_results = evaluate_cnn_models(models_dict, test_images, test_labels)
+    
+    # Evaluate ensemble models
+    ensemble_results = None
+    if any(k not in ['resnet', 'densenet', 'efficientnet', 'vit'] for k in models_dict.keys()):
+        with st.spinner("🔄 Evaluating ensemble models..."):
+            ensemble_results = evaluate_ensemble_models(models_dict, test_images, test_labels)
+    
+    # Visualizations
+    st.markdown("---")
+    df_metrics = plot_model_comparison(cnn_results, ensemble_results)
+    
+    st.markdown("---")
+    all_results = {**cnn_results}
+    if ensemble_results:
+        all_results.update(ensemble_results)
+    plot_confusion_matrices(all_results)
+    
+    st.markdown("---")
+    display_best_model_analysis(df_metrics)
+    
+    # Save results to session state
+    st.session_state.evaluation_results = {
+        'cnn_results': cnn_results,
+        'ensemble_results': ensemble_results,
+        'metrics_df': df_metrics
+    }
+    
+    st.success("✅ Evaluation complete!")
+    
+    return df_metrics
 
 # ==================== DATASET LOADING ====================
 
@@ -1357,6 +1827,11 @@ elif page == "🖼️ Image Flood Detection":
                             for model_name, pred in ensemble_preds.items():
                                 display_name = model_name.replace('_ensemble', '').replace('_', ' ').title()
                                 st.metric(display_name, f"{pred:.2%}")
+                            ensemble_avg = np.mean(list(ensemble_preds.values()))
+                            st.success(f"🏆 **Ensemble Average:** {ensemble_avg:.2%}")
+                        else:
+                            st.markdown("---")
+                            st.info("💡 No ensemble meta models were applied")
                     
                     with col2:
                         # Gauge chart
@@ -1472,6 +1947,21 @@ elif page == "🖼️ Image Flood Detection":
                             st.info("💡 **Insight:** Vision Transformer's attention mechanism detected different patterns than traditional CNNs, suggesting complex spatial relationships in the image.")
                         else:
                             st.success("✅ **Consensus:** Vision Transformer agrees with CNN predictions, indicating high confidence in flood assessment.")
+                    if ensemble_preds:
+                        st.markdown("---")
+                        st.markdown("#### 🔗 Ensemble Meta-Model Analysis")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            ensemble_avg = np.mean(list(ensemble_preds.values()))
+                            st.metric("🔗 Ensemble Average", f"{ensemble_avg:.2%}")
+                        with col2:
+                            cnn_avg = np.mean(list(cnn_preds.values()))
+                            st.metric("🤖 CNN Average", f"{cnn_avg:.2%}")
+                        with col3:
+                            diff = abs(ensemble_avg - cnn_avg)
+                            st.metric("📊 Difference", f"{diff:.2%}")
+                        if len(ensemble_preds) > 0:
+                            st.success(f"✅ **{len(ensemble_preds)} ensemble meta-models** were successfully applied to combine CNN predictions!")
                     
                     st.markdown("---")
                     st.markdown("#### 💡 Analysis Summary")
