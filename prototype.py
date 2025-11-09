@@ -1902,7 +1902,7 @@ elif page == "🖼️ Image Flood Detection":
                             st.plotly_chart(fig_compare, use_container_width=True)
                         
                         with col2:
-                            if len(predictions) >= 3:
+                            if len(predictions) >= 2:
                                 fig_radar = go.Figure()
                                 
                                 fig_radar.add_trace(go.Scatterpolar(
