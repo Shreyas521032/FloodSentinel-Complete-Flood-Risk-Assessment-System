@@ -1793,6 +1793,10 @@ elif page == "🖼️ Image Flood Detection":
             with col3:
                 water_mask = extract_water_mask(image)
                 st.image(water_mask, caption="Water Mask Detection", use_container_width=True)
+
+            with col4:
+                grayscalep = create_grayscale_image(image)
+                st.image(grayscalep, caption="Grayscale Image", use_container_width=True)
             
             st.markdown("---")
             
