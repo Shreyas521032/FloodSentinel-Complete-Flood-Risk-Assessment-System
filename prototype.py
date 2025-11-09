@@ -1781,7 +1781,7 @@ elif page == "🖼️ Image Flood Detection":
             image = Image.open(uploaded_file)
             
             st.markdown("#### 🖼️ Image Analysis")
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.image(image, caption="Original Image", use_container_width=True)
