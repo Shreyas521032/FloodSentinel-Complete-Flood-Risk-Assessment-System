@@ -29,6 +29,7 @@ import timm
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
 import glob
+import gdown
 from tqdm import tqdm
 
 warnings.filterwarnings('ignore')
@@ -282,6 +283,37 @@ def analyze_image_context(image):
 
 def load_pretrained_cnn_models(models_dir="cnn_models"):
     """Load pre-trained CNN models from checkpoint files with multiple fallback methods"""
+
+    # --- START OF MODIFICATION ---
+    # !! REPLACE THESE WITH YOUR GOOGLE DRIVE FILE IDs !!
+    file_ids = {
+        "resnet_model_checkpoint.pth": "1Dj5K1YyVl3mczopiEc7ZixVgPIaQRyku",
+        "resnet_model_checkpoint (1).pth": "YOUR_FILE_ID_HERE", # Or a different ID
+        "densenet_model_checkpoint.pth": "1GzsLM7t3-1IiRv9qZJLTwr37lgq3goDh",
+        "densenet_model_checkpoint (1).pth": "YOUR_FILE_ID_HERE", # Or a different ID
+        "efficientnet_model_checkpoint.pth": "YOUR_FILE_ID_HERE",
+        "vit_model_checkpoint.pth": "1g-UIJgRo2Eu6QDVATPSfcgy-aHAST9cl",
+    }
+    
+    # Ensure the target directory exists
+    os.makedirs(models_dir, exist_ok=True)
+    
+    # Download files if they don't exist locally
+    for filename, file_id in file_ids.items():
+        checkpoint_path = os.path.join(models_dir, filename)
+        if not os.path.exists(checkpoint_path):
+            if file_id == "YOUR_FILE_ID_HERE":
+                st.warning(f"⚠️ Skipping download for {filename}, File ID not set.")
+                continue
+            
+            st.info(f"🔄 Downloading {filename} from Google Drive...")
+            try:
+                gdown.download(id=file_id, output=checkpoint_path, quiet=False)
+                st.success(f"✅ Downloaded {filename}")
+            except Exception as e:
+                st.error(f"❌ Failed to download {filename}: {str(e)}")
+    # --- END OF MODIFICATION ---
+    
     loaded_models = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
