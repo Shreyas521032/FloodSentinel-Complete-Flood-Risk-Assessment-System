@@ -1218,32 +1218,35 @@ elif page == "🛰️ Satellite Analysis":
     
     st.markdown("""
     Load pre-trained deep learning models for satellite imagery analysis:
-    - **ResNet-50**: Deep residual network (compressed)
-    - **DenseNet-121**: Densely connected network (compressed)
-    - **Vision Transformer (ViT)**: Attention-based model (compressed)
-    - **EfficientNet-B0**: Efficient convolutional network
+    - **ResNet-50**: Deep residual network (.pth or .pkl)
+    - **DenseNet-121**: Densely connected network (.pth or .pkl)
+    - **Vision Transformer (ViT)**: Attention-based model (.pth or .pkl)
+    - **EfficientNet-B0**: Efficient convolutional network (.pth or .pkl)
     - **Ensemble Models**: Meta-learners and stacking models
+    
+    ℹ️ The app will automatically convert .pth files to .pkl format for better compatibility.
     """)
     
-    st.markdown("#### 📁 Load Compressed Deep Learning Models")
+    st.markdown("#### 📁 Load Deep Learning Models")
     
     models_dir = st.text_input("DL models directory path:", value="pretrained_models")
+    
     if st.button("🔍 Check Models Directory", type="secondary"):
         check_models_directory(models_dir)
+    
     if st.button("🔄 Load DL Models", type="primary"):
-        with st.spinner("Decompressing and loading models..."):
-        # First check what's there
-            st.code("Checking directory contents...")
-            check_models_directory(models_dir)
-        
-        # Then load
-        loaded_models = load_pretrained_dl_models_v2(models_dir)
-        if loaded_models:
-            st.session_state.ensemble_models = loaded_models
-            st.session_state.models_loaded = True
-            st.success(f"✅ Successfully loaded {len(loaded_models)} model components!")
-        else:
-            st.error("❌ No models were loaded.")
+        with st.spinner("Loading and converting models..."):
+            # Use the new v3 function
+            loaded_models = load_pretrained_dl_models_v3(models_dir)
+            
+            if loaded_models:
+                st.session_state.ensemble_models = loaded_models
+                st.session_state.models_loaded = True
+                st.success(f"✅ Successfully loaded {len(loaded_models)} model components!")
+            else:
+                st.error("❌ No models were loaded.")
+    
+    # ... rest of the page code remains the same
     
     if st.session_state.models_loaded:
         st.markdown("#### 📊 Loaded Components")
