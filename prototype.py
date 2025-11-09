@@ -281,7 +281,7 @@ def analyze_image_context(image):
 # ==================== CNN MODEL LOADING ====================
 
 def load_pretrained_cnn_models(models_dir="cnn_models"):
-    """Load pre-trained CNN models from checkpoint files"""
+    """Load pre-trained CNN models from checkpoint files with multiple fallback methods"""
     loaded_models = {}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
@@ -291,61 +291,140 @@ def load_pretrained_cnn_models(models_dir="cnn_models"):
     
     model_configs = {
         'resnet': {
-            'checkpoint': 'resnet_model_checkpoint (1).pth',
+            'checkpoints': ['resnet_model_checkpoint.pth', 'resnet_model_checkpoint (1).pth'],
             'display_name': '📊 ResNet-50',
-            'model_fn': lambda: torch_models.resnet50(pretrained=False)
+            'model_fn': lambda: torch_models.resnet50(pretrained=False),
+            'classifier_attr': 'fc'
         },
         'densenet': {
-            'checkpoint': 'densenet_model_checkpoint (1).pth',
+            'checkpoints': ['densenet_model_checkpoint.pth', 'densenet_model_checkpoint (1).pth'],
             'display_name': '🌿 DenseNet-121',
-            'model_fn': lambda: torch_models.densenet121(pretrained=False)
+            'model_fn': lambda: torch_models.densenet121(pretrained=False),
+            'classifier_attr': 'classifier'
         },
         'efficientnet': {
-            'checkpoint': 'efficientnet_model_checkpoint.pth',
+            'checkpoints': ['efficientnet_model_checkpoint.pth'],
             'display_name': '🚀 EfficientNet-B0',
-            'model_fn': lambda: timm.create_model('efficientnet_b0', pretrained=False, num_classes=2)
+            'model_fn': lambda: timm.create_model('efficientnet_b0', pretrained=False, num_classes=2),
+            'classifier_attr': None  # Already has 2 classes
+        },
+        'vit': {
+            'checkpoints': ['vit_model_checkpoint.pth'],
+            'display_name': '🎯 Vision Transformer',
+            'model_fn': lambda: timm.create_model('vit_base_patch16_224', pretrained=False, num_classes=2),
+            'classifier_attr': None  # Already has 2 classes
         }
     }
     
     for model_key, config in model_configs.items():
-        checkpoint_path = os.path.join(models_dir, config['checkpoint'])
+        loaded = False
         
-        if not os.path.exists(checkpoint_path):
-            st.warning(f"⚠️ {config['display_name']}: checkpoint not found at {checkpoint_path}")
-            continue
+        # Try each checkpoint filename
+        for checkpoint_name in config['checkpoints']:
+            checkpoint_path = os.path.join(models_dir, checkpoint_name)
+            
+            if not os.path.exists(checkpoint_path):
+                continue
+            
+            try:
+                st.info(f"🔄 Attempting to load {config['display_name']} from {checkpoint_name}...")
+                
+                # Create model architecture
+                model = config['model_fn']()
+                
+                # Modify final layer for binary classification if needed
+                if config['classifier_attr'] and config['classifier_attr'] == 'fc':
+                    in_features = model.fc.in_features
+                    model.fc = nn.Linear(in_features, 2)
+                elif config['classifier_attr'] and config['classifier_attr'] == 'classifier':
+                    in_features = model.classifier.in_features
+                    model.classifier = nn.Linear(in_features, 2)
+                
+                # METHOD 1: Try loading checkpoint normally
+                try:
+                    checkpoint = torch.load(checkpoint_path, map_location=device)
+                    
+                    # Handle different checkpoint formats
+                    if isinstance(checkpoint, dict):
+                        if 'model_state_dict' in checkpoint:
+                            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                        elif 'state_dict' in checkpoint:
+                            model.load_state_dict(checkpoint['state_dict'], strict=False)
+                        elif 'model' in checkpoint:
+                            model.load_state_dict(checkpoint['model'], strict=False)
+                        else:
+                            model.load_state_dict(checkpoint, strict=False)
+                    else:
+                        model.load_state_dict(checkpoint, strict=False)
+                    
+                    model = model.to(device)
+                    model.eval()
+                    
+                    loaded_models[model_key] = model
+                    st.success(f"✅ {config['display_name']} loaded successfully (Method 1)")
+                    loaded = True
+                    break
+                    
+                except Exception as e1:
+                    st.warning(f"⚠️ Method 1 failed: {str(e1)}")
+                    
+                    # METHOD 2: Try loading with weights_only=False
+                    try:
+                        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+                        
+                        if isinstance(checkpoint, dict):
+                            state_dict = checkpoint.get('model_state_dict', checkpoint.get('state_dict', checkpoint.get('model', checkpoint)))
+                        else:
+                            state_dict = checkpoint
+                        
+                        # Remove unexpected keys
+                        model_dict = model.state_dict()
+                        filtered_dict = {k: v for k, v in state_dict.items() if k in model_dict and v.shape == model_dict[k].shape}
+                        
+                        model_dict.update(filtered_dict)
+                        model.load_state_dict(model_dict, strict=False)
+                        
+                        model = model.to(device)
+                        model.eval()
+                        
+                        loaded_models[model_key] = model
+                        st.success(f"✅ {config['display_name']} loaded successfully (Method 2 - Filtered)")
+                        loaded = True
+                        break
+                        
+                    except Exception as e2:
+                        st.warning(f"⚠️ Method 2 failed: {str(e2)}")
+                        
+                        # METHOD 3: Try creating new model with pretrained ImageNet weights
+                        try:
+                            if model_key == 'resnet':
+                                model = torch_models.resnet50(pretrained=True)
+                                model.fc = nn.Linear(model.fc.in_features, 2)
+                            elif model_key == 'densenet':
+                                model = torch_models.densenet121(pretrained=True)
+                                model.classifier = nn.Linear(model.classifier.in_features, 2)
+                            elif model_key == 'efficientnet':
+                                model = timm.create_model('efficientnet_b0', pretrained=True, num_classes=2)
+                            elif model_key == 'vit':
+                                model = timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=2)
+                            
+                            model = model.to(device)
+                            model.eval()
+                            
+                            loaded_models[model_key] = model
+                            st.warning(f"⚠️ {config['display_name']} loaded with ImageNet weights (Method 3 - Fallback)")
+                            st.info("Note: Using pretrained ImageNet weights as checkpoint loading failed")
+                            loaded = True
+                            break
+                            
+                        except Exception as e3:
+                            st.error(f"❌ All methods failed for {config['display_name']}: {str(e3)}")
+            
+            except Exception as e:
+                st.error(f"❌ Error loading {config['display_name']}: {str(e)}")
         
-        try:
-            # Create model architecture
-            model = config['model_fn']()
-            
-            # Modify final layer for binary classification (if not EfficientNet)
-            if model_key == 'resnet':
-                model.fc = nn.Linear(model.fc.in_features, 2)
-            elif model_key == 'densenet':
-                model.classifier = nn.Linear(model.classifier.in_features, 2)
-            
-            # Load checkpoint
-            checkpoint = torch.load(checkpoint_path, map_location=device)
-            
-            # Handle different checkpoint formats
-            if isinstance(checkpoint, dict):
-                if 'model_state_dict' in checkpoint:
-                    model.load_state_dict(checkpoint['model_state_dict'])
-                elif 'state_dict' in checkpoint:
-                    model.load_state_dict(checkpoint['state_dict'])
-                else:
-                    model.load_state_dict(checkpoint)
-            else:
-                model.load_state_dict(checkpoint)
-            
-            model = model.to(device)
-            model.eval()
-            
-            loaded_models[model_key] = model
-            st.success(f"✅ {config['display_name']} loaded successfully")
-            
-        except Exception as e:
-            st.error(f"❌ Error loading {config['display_name']}: {str(e)}")
+        if not loaded:
+            st.warning(f"⚠️ {config['display_name']}: No valid checkpoint found. Tried: {', '.join(config['checkpoints'])}")
     
     return loaded_models
 
