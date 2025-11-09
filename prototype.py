@@ -615,31 +615,6 @@ def extract_water_mask(image):
     except Exception as e:
         return image
 
-def create_grayscale_image(image):
-    """Convert image to grayscale for better water detection analysis"""
-    try:
-        img_array = np.array(image)
-        if len(img_array.shape) == 3:
-            grayscale = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-            # Convert back to RGB for display (but it will appear gray)
-            grayscale_rgb = cv2.cvtColor(grayscale, cv2.COLOR_GRAY2RGB)
-            return Image.fromarray(grayscale_rgb)
-        return image
-    except Exception as e:
-        return image
-
-def extract_water_mask(image):
-    """Extract water mask"""
-    try:
-        water_mask, _ = detect_water_features(image)
-        water_mask_rgb = cv2.cvtColor(water_mask, cv2.COLOR_GRAY2RGB)
-        water_mask_rgb[:, :, 0] = 0
-        water_mask_rgb[:, :, 2] = 0
-        
-        return Image.fromarray(water_mask_rgb)
-    except Exception as e:
-        return image
-
 def load_evaluation_dataset():
     """
     Load or create a labeled evaluation dataset for CNN models
@@ -1781,7 +1756,7 @@ elif page == "🖼️ Image Flood Detection":
             image = Image.open(uploaded_file)
             
             st.markdown("#### 🖼️ Image Analysis")
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.image(image, caption="Original Image", use_container_width=True)
@@ -1794,9 +1769,6 @@ elif page == "🖼️ Image Flood Detection":
                 water_mask = extract_water_mask(image)
                 st.image(water_mask, caption="Water Mask Detection", use_container_width=True)
 
-            with col4:
-                grayscalep = create_grayscale_image(image)
-                st.image(grayscalep, caption="Grayscale Image", use_container_width=True)
             
             st.markdown("---")
             
