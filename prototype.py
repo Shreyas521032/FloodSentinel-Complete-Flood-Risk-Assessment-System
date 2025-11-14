@@ -1754,6 +1754,26 @@ elif page == "🖼️ Image Flood Detection":
     if uploaded_file is not None:
         try:
             image = Image.open(uploaded_file)
+
+            # Convert image to RGB if it's in an incompatible mode
+            if image.mode not in ('RGB', 'RGBA', 'L'):
+                st.warning(f"⚠️ Converting image from mode '{image.mode}' to RGB")
+                # Convert to numpy array, normalize, and convert to RGB
+                img_array = np.array(image)
+                if img_array.dtype != np.uint8:
+                    # Normalize to 0-255 range
+                    img_min, img_max = img_array.min(), img_array.max()
+                    if img_max > img_min:
+                        img_array = ((img_array - img_min) / (img_max - img_min) * 255).astype(np.uint8)
+                    else:
+                        img_array = np.zeros_like(img_array, dtype=np.uint8)
+                image = Image.fromarray(img_array).convert('RGB')
+            elif image.mode == 'RGBA':
+                # Convert RGBA to RGB
+                image = image.convert('RGB')
+            elif image.mode == 'L':
+                # Convert grayscale to RGB
+                image = image.convert('RGB')
             
             st.markdown("#### 🖼️ Image Analysis")
             col1, col2, col3 = st.columns(3)
