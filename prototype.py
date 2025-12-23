@@ -1091,7 +1091,7 @@ def run_comprehensive_evaluation(models_dict, test_images=None, test_labels=None
 def load_datasets_from_kaggle():
     """Load datasets from Kaggle"""
     try:
-        with st.spinner("🔄 Downloading datasets from Kaggle..."):
+        with st.spinner("🔄 Downloading tabular dataset from Kaggle..."):
             path_tabular = kagglehub.dataset_download("naiyakhalid/flood-prediction-dataset")
             st.success(f"✅ Tabular data downloaded to: {path_tabular}")
             
@@ -1263,7 +1263,7 @@ if page == "🏠 Home":
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("🔄 Load from Kaggle", type="primary", key="load_kaggle"):
+        if st.button("🔄 Load Tabular Dataset", type="primary", key="load_kaggle"):
             df_flood = load_datasets_from_kaggle()
             if df_flood is not None:
                 st.session_state.df_flood = df_flood
