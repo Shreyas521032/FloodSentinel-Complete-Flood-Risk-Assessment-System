@@ -4,7 +4,7 @@
 ![Satellite](https://img.shields.io/badge/Satellite%20Imagery-CNN%20-lightgrey)
 ![Multi-Modal](https://img.shields.io/badge/Feature-Multi--Modal%20Analysis-purple)
 
-🔗 **Live Deployed Project:** [https://srs-drug-design-trib2-molecule.streamlit.app](https://srs-drug-design-trib2-molecule.streamlit.app/)
+🔗 **Live Deployed Project:** [https://sck-floodsentinel-complete-flood-risk-assessment-system.streamlit.app](https://sck-floodsentinel-complete-flood-risk-assessment-system.streamlit.app/)
 
 ## 🧩 Problem Statement
 Floods remain among the most destructive natural hazards globally, causing widespread loss of life, economic disruption, and environmental damage. Effective flood risk mapping and early warning are essential for disaster preparedness and mitigation. However, current flood prediction systems face critical limitations that undermine their real-world applicability, especially in data-scarce and ungauged regions where vulnerability is highest. Existing approaches either rely on computationally intensive physics-based hydrological models that require extensive ground calibration and cannot deliver real-time forecasts, or on purely data-driven machine learning models that lack physical interpretability and struggle to generalize across diverse hydrological contexts.
